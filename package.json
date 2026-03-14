@@ -1,0 +1,30 @@
+{
+  "name": "hulkcore-backend",
+  "version": "1.0.0",
+  "description": "backend for hulkcore",
+  "license": "ISC",
+  "author": "Moiz-Khan",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "dev:all": "bash -c 'trap \"kill 0\" EXIT; npm run dev & npm --prefix ../front-hulk run dev & npm --prefix ../admin-hulk run dev & wait'",
+    "start": "node server.js",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.879.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "mysql2": "^3.17.1",
+    "redis": "^4.7.1"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
+    "supertest": "^7.1.4",
+    "vitest": "^3.2.4"
+  }
+}
