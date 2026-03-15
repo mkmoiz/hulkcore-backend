@@ -20,9 +20,27 @@ function readRequiredEnvWithDevFallback(envName, developmentFallback) {
   );
 }
 
+function readPositiveIntegerEnv(envName, fallbackValue) {
+  const rawValue = cleanText(process.env[envName]);
+  if (!rawValue) {
+    return fallbackValue;
+  }
+
+  const parsedValue = Number(rawValue);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return fallbackValue;
+  }
+
+  return Math.floor(parsedValue);
+}
+
+export function normalizeOriginValue(origin) {
+  return cleanText(origin).replace(/\/+$/, "");
+}
+
 export const PORT = Number(process.env.PORT) || 4000;
-export const MAX_IMAGE_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-export const MAX_REPORT_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+export const MAX_IMAGE_FILE_SIZE_BYTES = readPositiveIntegerEnv("MAX_IMAGE_FILE_SIZE_BYTES", 5 * 1024 * 1024);
+export const MAX_REPORT_FILE_SIZE_BYTES = readPositiveIntegerEnv("MAX_REPORT_FILE_SIZE_BYTES", 20 * 1024 * 1024);
 export const THEME_CODE_PATTERN = /^[a-z0-9_-]{2,64}$/;
 export const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
 export const HOME_ICON_KEY_PATTERN = /^[a-z0-9-]{2,64}$/;
@@ -92,7 +110,7 @@ export const DEFAULT_CORS_ALLOWED_ORIGINS = [
 ];
 export const CORS_ALLOWED_ORIGINS = cleanText(process.env.CORS_ALLOWED_ORIGINS)
   .split(",")
-  .map((entry) => cleanText(entry))
+  .map((entry) => normalizeOriginValue(entry))
   .filter(Boolean);
 export const CORS_ALLOWED_ORIGIN_SET = new Set(CORS_ALLOWED_ORIGINS.length > 0 ? CORS_ALLOWED_ORIGINS : DEFAULT_CORS_ALLOWED_ORIGINS);
 export const REPORT_UPLOAD_PREFIX = cleanText(process.env.R2_REPORT_PREFIX) || "lab-reports";

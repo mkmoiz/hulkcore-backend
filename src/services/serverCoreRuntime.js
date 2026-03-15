@@ -1,7 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import { CORS_ALLOWED_ORIGIN_SET } from "../config/environment.js";
+import { CORS_ALLOWED_ORIGIN_SET, normalizeOriginValue } from "../config/environment.js";
 
 const app = express();
 
@@ -9,7 +9,8 @@ app.use(
   cors({
     credentials: true,
     origin(origin, callback) {
-      if (!origin || CORS_ALLOWED_ORIGIN_SET.has(origin)) {
+      const normalizedOrigin = normalizeOriginValue(origin);
+      if (!normalizedOrigin || CORS_ALLOWED_ORIGIN_SET.has(normalizedOrigin)) {
         return callback(null, true);
       }
       return callback(null, false);
