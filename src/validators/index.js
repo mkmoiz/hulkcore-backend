@@ -712,6 +712,12 @@ export async function validateCarouselImagePayload(body, existingCarouselImage) 
   const sortOrder = toNonNegativeInt(body?.sortOrder ?? existingCarouselImage?.sortOrder, existingCarouselImage?.sortOrder ?? 0);
   const isActive = typeof body?.isActive === "boolean" ? body.isActive : existingCarouselImage?.isActive ?? true;
 
+  // Optional linked product
+  const linkedProductIdRaw = hasOwnField("linkedProductId")
+    ? body?.linkedProductId
+    : existingCarouselImage?.linkedProductId;
+  const linkedProductId = cleanText(linkedProductIdRaw) || null;
+
   if (!imageUrl) {
     return { error: "Carousel image URL is required." };
   }
@@ -724,11 +730,19 @@ export async function validateCarouselImagePayload(body, existingCarouselImage) 
     return { error: "Sort order must be a valid non-negative integer." };
   }
 
+  if (linkedProductId) {
+    const hasProduct = await findProductById(linkedProductId);
+    if (!hasProduct) {
+      return { error: "Linked product does not exist." };
+    }
+  }
+
   return {
     value: {
       title,
       imageUrl,
       imageKey,
+      linkedProductId,
       sortOrder,
       isActive,
     },

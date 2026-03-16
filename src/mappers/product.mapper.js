@@ -87,6 +87,7 @@ export function mapCarouselImage(row) {
     title: row.title ?? "",
     imageUrl: row.imageUrl ?? "",
     imageKey: row.imageKey ?? "",
+    linkedProductId: row.linkedProductId ?? null,
     sortOrder: Number(row.sortOrder ?? 0),
     isActive: Boolean(row.isActive),
     createdAt: toIsoString(row.createdAt),

@@ -18,7 +18,8 @@ export function createErrorBody(code, message, details) {
 }
 
 export function apiErrorHandler(error, req, res, _next) {
-  console.error(error);
+  const errCode = error?.code || "INTERNAL_ERROR";
+  console.error(`[API Error] ${errCode}:`, error);
 
   if (error?.code === "LIMIT_FILE_SIZE") {
     const uploadField = cleanText(error?.field).toLowerCase();
@@ -36,16 +37,21 @@ export function apiErrorHandler(error, req, res, _next) {
     return res.status(503).json({ message: error.message });
   }
 
+  // Database Errors
   if (error?.code === "ER_DUP_ENTRY") {
     return res.status(409).json({ message: "Duplicate value conflict." });
   }
 
   if (error?.code === "ER_NO_REFERENCED_ROW_2") {
-    return res.status(400).json({ message: "Referenced category does not exist." });
+    return res.status(400).json({ message: "Referenced entity does not exist." });
   }
 
   if (error?.code === "ER_ROW_IS_REFERENCED_2") {
-    return res.status(409).json({ message: "Category is linked to existing products." });
+    return res.status(409).json({ message: "Entity is linked to existing data and cannot be deleted." });
+  }
+
+  if (error?.code === "ER_BAD_FIELD_ERROR") {
+    return res.status(500).json({ message: "Database schema mismatch. Please run migrations." });
   }
 
   if (typeof error?.statusCode === "number" && error.statusCode >= 400 && error.statusCode < 600) {
@@ -53,6 +59,7 @@ export function apiErrorHandler(error, req, res, _next) {
   }
 
   res.status(500).json({
-    message: "Unexpected server error.",
+    message: error.message || "Unexpected server error.",
+    code: errCode,
   });
 }

@@ -433,7 +433,21 @@ async function ensureOrderComboItemsTable() {
   `);
 }
 
+async function ensureCarouselLinkColumn() {
+  const [rows] = await getPool().query("SHOW COLUMNS FROM carousel_images LIKE 'linked_product_id'");
+
+  if (rows.length > 0) {
+    return;
+  }
+
+  await getPool().query(`
+    ALTER TABLE carousel_images
+    ADD COLUMN linked_product_id VARCHAR(191) NULL DEFAULT NULL AFTER image_key
+  `);
+}
+
 export async function runMigrations() {
+  await ensureCarouselLinkColumn();
   await ensureCategoryImageColumns();
   await ensureProductImageKeyColumn();
   await ensureProductCatalogColumns();

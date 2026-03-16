@@ -8,6 +8,7 @@ export async function getCarouselImages() {
       title,
       image_url AS imageUrl,
       image_key AS imageKey,
+      linked_product_id AS linkedProductId,
       sort_order AS sortOrder,
       is_active AS isActive,
       created_at AS createdAt,
@@ -27,6 +28,7 @@ export async function findCarouselImageById(id) {
         title,
         image_url AS imageUrl,
         image_key AS imageKey,
+        linked_product_id AS linkedProductId,
         sort_order AS sortOrder,
         is_active AS isActive,
         created_at AS createdAt,
@@ -50,17 +52,19 @@ export async function createCarouselImage(input) {
         title,
         image_url,
         image_key,
+        linked_product_id,
         sort_order,
         is_active,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       input.id,
       input.title ?? "",
       input.imageUrl ?? "",
       input.imageKey ?? "",
+      input.linkedProductId ?? null,
       input.sortOrder ?? 0,
       input.isActive ? 1 : 0,
       now,
@@ -80,6 +84,7 @@ export async function updateCarouselImageById(id, input) {
         title = ?,
         image_url = ?,
         image_key = ?,
+        linked_product_id = ?,
         sort_order = ?,
         is_active = ?,
         updated_at = ?
@@ -89,6 +94,7 @@ export async function updateCarouselImageById(id, input) {
       input.title ?? "",
       input.imageUrl ?? "",
       input.imageKey ?? "",
+      input.linkedProductId ?? null,
       input.sortOrder ?? 0,
       input.isActive ? 1 : 0,
       now,
