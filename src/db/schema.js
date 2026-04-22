@@ -31,6 +31,8 @@ export async function createSchema() {
       price DECIMAL(10, 2) NOT NULL,
       original_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
       offer_price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+      rating_avg DECIMAL(3, 2) NOT NULL DEFAULT 0.00,
+      review_count INT UNSIGNED NOT NULL DEFAULT 0,
       stock INT UNSIGNED NOT NULL DEFAULT 0,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at DATETIME(3) NOT NULL,
@@ -42,6 +44,31 @@ export async function createSchema() {
         ON UPDATE CASCADE
         ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_reviews (
+      id VARCHAR(64) PRIMARY KEY,
+      product_id VARCHAR(64) NOT NULL,
+      user_id VARCHAR(64) NOT NULL,
+      rating TINYINT NOT NULL,
+      headline VARCHAR(191) NULL,
+      comment TEXT NULL,
+      is_approved TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      INDEX idx_product_reviews_product (product_id, is_approved, created_at),
+      CONSTRAINT fk_product_reviews_product
+        FOREIGN KEY (product_id)
+        REFERENCES products (id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_product_reviews_user
+        FOREIGN KEY (user_id)
+        REFERENCES users (id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
   await pool.query(`

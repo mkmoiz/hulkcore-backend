@@ -23,6 +23,8 @@ function productSelectSql(whereClause = "") {
       p.price,
       p.original_price AS originalPrice,
       p.offer_price AS offerPrice,
+      p.rating_avg AS ratingAvg,
+      p.review_count AS reviewCount,
       p.stock,
       p.is_active AS isActive,
       p.created_at AS createdAt,
@@ -211,4 +213,16 @@ export async function deleteProductById(id) {
   } finally {
     connection.release();
   }
+}
+
+export async function updateProductRatingStats(id, ratingAvg, reviewCount) {
+  const [result] = await getPool().query(
+    `
+      UPDATE products
+      SET rating_avg = ?, review_count = ?
+      WHERE id = ?
+    `,
+    [ratingAvg, reviewCount, id],
+  );
+  return result.affectedRows > 0;
 }

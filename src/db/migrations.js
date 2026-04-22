@@ -446,6 +446,57 @@ async function ensureCarouselLinkColumn() {
   `);
 }
 
+async function ensureProductReviewsTable() {
+  const columnAdditions = [
+    {
+      name: "rating_avg",
+      sql: `
+        ALTER TABLE products
+        ADD COLUMN rating_avg DECIMAL(3, 2) NOT NULL DEFAULT 0.00 AFTER offer_price
+      `,
+    },
+    {
+      name: "review_count",
+      sql: `
+        ALTER TABLE products
+        ADD COLUMN review_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER rating_avg
+      `,
+    },
+  ];
+
+  for (const column of columnAdditions) {
+    const [rows] = await getPool().query(`SHOW COLUMNS FROM products LIKE '${column.name}'`);
+    if (rows.length === 0) {
+      await getPool().query(column.sql);
+    }
+  }
+
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS product_reviews (
+      id VARCHAR(64) PRIMARY KEY,
+      product_id VARCHAR(64) NOT NULL,
+      user_id VARCHAR(64) NOT NULL,
+      rating TINYINT NOT NULL,
+      headline VARCHAR(191) NULL,
+      comment TEXT NULL,
+      is_approved TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      INDEX idx_product_reviews_product (product_id, is_approved, created_at),
+      CONSTRAINT fk_product_reviews_product
+        FOREIGN KEY (product_id)
+        REFERENCES products (id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_product_reviews_user
+        FOREIGN KEY (user_id)
+        REFERENCES users (id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 export async function runMigrations() {
   await ensureCarouselLinkColumn();
   await ensureCategoryImageColumns();
@@ -459,4 +510,5 @@ export async function runMigrations() {
   await ensureComboOfferTables();
   await ensureCartComboItemsTable();
   await ensureOrderComboItemsTable();
+  await ensureProductReviewsTable();
 }

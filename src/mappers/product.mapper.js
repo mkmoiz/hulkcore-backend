@@ -63,6 +63,8 @@ export function mapProduct(row, productImageRows = []) {
     price: offerPrice,
     originalPrice,
     offerPrice,
+    ratingAvg: row.ratingAvg ? parseFloat(Number(row.ratingAvg).toFixed(2)) : 0,
+    reviewCount: Number(row.reviewCount ?? 0),
     stock: Number(row.stock),
     isActive: Boolean(row.isActive),
     createdAt: toIsoString(row.createdAt),

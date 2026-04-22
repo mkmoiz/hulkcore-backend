@@ -192,5 +192,33 @@ app.delete("/api/products/:id", async (req, res, next) => {
   }
 });
 
+app.get("/api/products/:id/reviews", async (req, res, next) => {
+  try {
+    const reviews = await fetchApprovedProductReviews(req.params.id);
+    res.json(reviews);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/products/:id/reviews", async (req, res, next) => {
+  try {
+    const authSession = await requireAuthenticatedSession(req, res);
+    if (!authSession) {
+      return;
+    }
+    const review = await createProductReview({
+      productId: req.params.id,
+      userId: authSession.user.id,
+      rating: req.body.rating,
+      headline: req.body.headline,
+      comment: req.body.comment,
+    });
+    res.status(201).json(review);
+  } catch (error) {
+    next(error);
+  }
+});
+
 
 export default app;
