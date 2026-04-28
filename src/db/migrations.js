@@ -160,76 +160,7 @@ async function ensureCategoryImageColumns() {
   }
 }
 
-async function ensureThemeSettingsColumns() {
-  const columnAdditions = [
-    {
-      name: "brand_name",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN brand_name VARCHAR(191) NOT NULL DEFAULT 'Hulk Core' AFTER customer_code
-      `,
-    },
-    {
-      name: "theme_mode",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN theme_mode VARCHAR(32) NOT NULL DEFAULT 'night' AFTER brand_name
-      `,
-    },
-    {
-      name: "primary_color",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN primary_color CHAR(7) NOT NULL DEFAULT '#4CAF50' AFTER theme_mode
-      `,
-    },
-    {
-      name: "primary_dark_color",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN primary_dark_color CHAR(7) NOT NULL DEFAULT '#2E7D32' AFTER primary_color
-      `,
-    },
-    {
-      name: "primary_light_color",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN primary_light_color CHAR(7) NOT NULL DEFAULT '#81C784' AFTER primary_dark_color
-      `,
-    },
-    {
-      name: "accent_color",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN accent_color CHAR(7) NOT NULL DEFAULT '#A3FF12' AFTER primary_light_color
-      `,
-    },
-    {
-      name: "updated_at",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN updated_at DATETIME(3) NOT NULL
-          DEFAULT CURRENT_TIMESTAMP(3)
-          ON UPDATE CURRENT_TIMESTAMP(3)
-          AFTER accent_color
-      `,
-    },
-    {
-      name: "extended_settings",
-      sql: `
-        ALTER TABLE theme_settings
-        ADD COLUMN extended_settings LONGTEXT NULL AFTER accent_color
-      `,
-    },
-  ];
 
-  for (const column of columnAdditions) {
-    const [rows] = await getPool().query(`SHOW COLUMNS FROM theme_settings LIKE '${column.name}'`);
-    if (rows.length === 0) {
-      await getPool().query(column.sql);
-    }
-  }
-}
 
 async function ensureUserProfileColumns() {
   const columnAdditions = [
@@ -497,6 +428,36 @@ async function ensureProductReviewsTable() {
   `);
 }
 
+async function ensureHomepageProductTables() {
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS homepage_product_section (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      heading VARCHAR(191) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      updated_at DATETIME(3) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS homepage_products (
+      id VARCHAR(64) PRIMARY KEY,
+      product_id VARCHAR(64) NOT NULL,
+      position INT UNSIGNED NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      UNIQUE KEY uq_homepage_products_product (product_id),
+      INDEX idx_homepage_products_position (position, created_at),
+      CONSTRAINT fk_homepage_products_product
+        FOREIGN KEY (product_id)
+        REFERENCES products (id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 export async function runMigrations() {
   await ensureCarouselLinkColumn();
   await ensureCategoryImageColumns();
@@ -504,11 +465,12 @@ export async function runMigrations() {
   await ensureProductCatalogColumns();
   await ensureOrderPaymentColumns();
   await ensureOrderPaymentIndexes();
-  await ensureThemeSettingsColumns();
+
   await ensureUserProfileColumns();
   await ensureEmailOtpChallengesTable();
   await ensureComboOfferTables();
   await ensureCartComboItemsTable();
   await ensureOrderComboItemsTable();
   await ensureProductReviewsTable();
+  await ensureHomepageProductTables();
 }

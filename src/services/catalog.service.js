@@ -29,6 +29,7 @@ export {
 } from "../repositories/levels.repository.js";
 
 export { getOfferProducts, replaceOfferProducts } from "../repositories/offers.repository.js";
+export { getHomepageProducts, replaceHomepageProducts } from "../repositories/homepage-products.repository.js";
 export {
   getComboOffers,
   findComboOfferById,

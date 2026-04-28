@@ -308,29 +308,13 @@ export async function createSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS theme_settings (
-      customer_code VARCHAR(64) PRIMARY KEY,
-      brand_name VARCHAR(191) NOT NULL DEFAULT 'Hulk Core',
-      theme_mode VARCHAR(32) NOT NULL DEFAULT 'night',
-      primary_color CHAR(7) NOT NULL DEFAULT '#4CAF50',
-      primary_dark_color CHAR(7) NOT NULL DEFAULT '#2E7D32',
-      primary_light_color CHAR(7) NOT NULL DEFAULT '#81C784',
-      accent_color CHAR(7) NOT NULL DEFAULT '#A3FF12',
-      updated_at DATETIME(3) NOT NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS home_content (
       customer_code VARCHAR(64) PRIMARY KEY,
       payload LONGTEXT NOT NULL,
-      updated_at DATETIME(3) NOT NULL,
-      CONSTRAINT fk_home_content_theme_customer
-        FOREIGN KEY (customer_code)
-        REFERENCES theme_settings (customer_code)
-        ON UPDATE CASCADE
-        ON DELETE CASCADE
+      updated_at DATETIME(3) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -452,6 +436,34 @@ export async function createSchema() {
       UNIQUE KEY uq_best_seller_products_product (product_id),
       INDEX idx_best_seller_products_position (position, created_at),
       CONSTRAINT fk_best_seller_products_product
+        FOREIGN KEY (product_id)
+        REFERENCES products (id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS homepage_product_section (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      heading VARCHAR(191) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      updated_at DATETIME(3) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS homepage_products (
+      id VARCHAR(64) PRIMARY KEY,
+      product_id VARCHAR(64) NOT NULL,
+      position INT UNSIGNED NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      UNIQUE KEY uq_homepage_products_product (product_id),
+      INDEX idx_homepage_products_position (position, created_at),
+      CONSTRAINT fk_homepage_products_product
         FOREIGN KEY (product_id)
         REFERENCES products (id)
         ON UPDATE CASCADE

@@ -1,12 +1,10 @@
 import { normalizeNavMenuItems, normalizeNavMenuMeta } from "../navMenu.js";
-import { DEFAULT_THEME_SETTINGS, categoryExists, findProductById } from "../store.js";
+import { categoryExists, findProductById } from "../store.js";
 import {
-  HEX_COLOR_PATTERN,
   HOME_ICON_KEY_PATTERN,
   LEVEL_RULE_MODES,
   LEVEL_SORT_MODES,
   THEME_CODE_PATTERN,
-  THEME_MODES,
 } from "../config/environment.js";
 import { cleanText, slugify, toNonNegativeInt, toNumber } from "../utils.js";
 import { normalizeLevelSortMode, normalizeProductImagesPayload, resolveImageKeyFromPayload } from "../utils/runtimeHelpers.js";
@@ -213,7 +211,7 @@ export function validateHomeContentPayload(body, existingHomeContent) {
 export function normalizeThemeCode(value) {
   const trimmedValue = cleanText(value).toLowerCase();
   if (!trimmedValue) {
-    return DEFAULT_THEME_SETTINGS.customerCode;
+    return "default";
   }
 
   if (!THEME_CODE_PATTERN.test(trimmedValue)) {
@@ -221,66 +219,6 @@ export function normalizeThemeCode(value) {
   }
 
   return trimmedValue;
-}
-
-export function normalizeHexColor(value, fallbackHex) {
-  const rawValue = cleanText(value || fallbackHex);
-  if (!rawValue) {
-    return null;
-  }
-
-  const withHash = rawValue.startsWith("#") ? rawValue : `#${rawValue}`;
-  if (!HEX_COLOR_PATTERN.test(withHash)) {
-    return null;
-  }
-
-  return withHash.toUpperCase();
-}
-
-export function validateThemeSettingsPayload(body, existingThemeSettings) {
-  const customerCode = normalizeThemeCode(body?.customerCode ?? existingThemeSettings?.customerCode);
-  if (!customerCode) {
-    return {
-      error: "Customer code must be 2-64 chars using lowercase letters, numbers, hyphen, or underscore.",
-    };
-  }
-
-  const brandName = cleanText(body?.brandName ?? existingThemeSettings?.brandName) || DEFAULT_THEME_SETTINGS.brandName;
-  const themeModeCandidate = cleanText(body?.themeMode ?? existingThemeSettings?.themeMode).toLowerCase();
-  if (!THEME_MODES.has(themeModeCandidate)) {
-    return { error: "Theme mode must be one of: light, dark, night." };
-  }
-
-  const primaryColor = normalizeHexColor(body?.primaryColor, existingThemeSettings?.primaryColor);
-  const primaryDarkColor = normalizeHexColor(body?.primaryDarkColor, existingThemeSettings?.primaryDarkColor);
-  const primaryLightColor = normalizeHexColor(body?.primaryLightColor, existingThemeSettings?.primaryLightColor);
-  const accentColor = normalizeHexColor(body?.accentColor, existingThemeSettings?.accentColor);
-
-  if (!primaryColor || !primaryDarkColor || !primaryLightColor || !accentColor) {
-    return { error: "Theme colors must be valid 6-digit hex values (e.g. #4CAF50)." };
-  }
-
-  // Merge extended settings: body overrides → existing → defaults
-  let extendedSettings = { ...(DEFAULT_THEME_SETTINGS.extendedSettings || {}) };
-  if (existingThemeSettings?.extendedSettings && typeof existingThemeSettings.extendedSettings === "object") {
-    extendedSettings = { ...extendedSettings, ...existingThemeSettings.extendedSettings };
-  }
-  if (body?.extendedSettings && typeof body.extendedSettings === "object" && !Array.isArray(body.extendedSettings)) {
-    extendedSettings = { ...extendedSettings, ...body.extendedSettings };
-  }
-
-  return {
-    value: {
-      customerCode,
-      brandName: brandName.slice(0, 191),
-      themeMode: themeModeCandidate,
-      primaryColor,
-      primaryDarkColor,
-      primaryLightColor,
-      accentColor,
-      extendedSettings,
-    },
-  };
 }
 
 export async function validateCategoryPayload(body, existingCategory) {
@@ -520,6 +458,66 @@ export async function validateOfferProductsPayload(body) {
   }
 
   return { value: normalized };
+}
+
+export async function validateHomepageProductsPayload(body) {
+  if (!body || typeof body !== "object") {
+    return { error: "Payload is required." };
+  }
+
+  const sectionSource = body.section && typeof body.section === "object" ? body.section : body;
+  const name = cleanText(sectionSource?.name || "Featured Products");
+  const heading = cleanText(sectionSource?.heading || "Shop Featured Products");
+  const sectionIsActive =
+    typeof sectionSource?.isActive === "boolean" ? sectionSource.isActive : true;
+
+  if (!name) {
+    return { error: "Homepage product section name is required." };
+  }
+  if (!heading) {
+    return { error: "Homepage product section heading is required." };
+  }
+  if (!Array.isArray(body.items)) {
+    return { error: "items must be an array." };
+  }
+  if (body.items.length > 12) {
+    return { error: "Homepage products can contain at most 12 products." };
+  }
+
+  const normalized = [];
+  const seenProductIds = new Set();
+  for (const [index, item] of body.items.entries()) {
+    const productId = cleanText(item?.productId);
+    if (!productId) {
+      return { error: `Homepage product at index ${index} is missing productId.` };
+    }
+
+    if (seenProductIds.has(productId)) {
+      return { error: `Duplicate product in homepage products payload: ${productId}.` };
+    }
+
+    const product = await findProductById(productId);
+    if (!product) {
+      return { error: `Homepage product not found: ${productId}.` };
+    }
+
+    seenProductIds.add(productId);
+    normalized.push({
+      productId,
+      isActive: typeof item?.isActive === "boolean" ? item.isActive : true,
+    });
+  }
+
+  return {
+    value: {
+      section: {
+        name,
+        heading,
+        isActive: sectionIsActive,
+      },
+      items: normalized,
+    },
+  };
 }
 
 function normalizeOptionalDateValue(value) {

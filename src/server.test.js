@@ -19,15 +19,6 @@ const storeMocks = vi.hoisted(() => ({
     reviews: [{ name: "Moiz", goal: "Muscle", quote: "Works great", rating: "4.9/5" }],
     articles: [{ title: "Whey Guide", summary: "Basics", tag: "Protein", readTime: "4 min" }],
   },
-  DEFAULT_THEME_SETTINGS: {
-    customerCode: "default",
-    brandName: "Hulk Core",
-    themeMode: "night",
-    primaryColor: "#4CAF50",
-    primaryDarkColor: "#2E7D32",
-    primaryLightColor: "#81C784",
-    accentColor: "#A3FF12",
-  },
   initStore: vi.fn(),
   getNavMenus: vi.fn(),
   findNavMenuById: vi.fn(),
@@ -38,8 +29,6 @@ const storeMocks = vi.hoisted(() => ({
   replaceNavMenuItems: vi.fn(),
   publishNavMenuById: vi.fn(),
   getPublishedNavMenuByKey: vi.fn(),
-  getThemeSettings: vi.fn(),
-  upsertThemeSettings: vi.fn(),
   getHomeContent: vi.fn(),
   upsertHomeContent: vi.fn(),
   getCategories: vi.fn(),
@@ -141,16 +130,6 @@ const baseCarouselImage = {
   isActive: true,
 };
 
-const baseThemeSettings = {
-  customerCode: "default",
-  brandName: "Hulk Core",
-  themeMode: "night",
-  primaryColor: "#4CAF50",
-  primaryDarkColor: "#2E7D32",
-  primaryLightColor: "#81C784",
-  accentColor: "#A3FF12",
-  updatedAt: new Date().toISOString(),
-};
 
 const baseHomeContent = {
   customerCode: "default",
@@ -364,11 +343,6 @@ beforeEach(() => {
   storeMocks.publishNavMenuById.mockResolvedValue(basePublishedNavMenu);
   storeMocks.getPublishedNavMenuByKey.mockResolvedValue(basePublishedNavMenu);
 
-  storeMocks.getThemeSettings.mockResolvedValue(baseThemeSettings);
-  storeMocks.upsertThemeSettings.mockImplementation(async (input) => ({
-    ...baseThemeSettings,
-    ...input,
-  }));
   storeMocks.getHomeContent.mockResolvedValue(baseHomeContent);
   storeMocks.upsertHomeContent.mockImplementation(async (input) => ({
     ...baseHomeContent,
@@ -591,30 +565,6 @@ describe("backend api", () => {
     expect(response.body.message).toMatch(/not configured/i);
   });
 
-  it("returns theme settings", async () => {
-    const response = await request(app).get("/api/theme-settings");
-
-    expect(response.status).toBe(200);
-    expect(response.body.customerCode).toBe("default");
-    expect(storeMocks.getThemeSettings).toHaveBeenCalledWith("default");
-  });
-
-  it("updates theme settings", async () => {
-    const response = await request(app).put("/api/theme-settings").send({
-      customerCode: "customer-neon",
-      brandName: "Customer Neon",
-      themeMode: "dark",
-      primaryColor: "#00FFB3",
-      primaryDarkColor: "#008F64",
-      primaryLightColor: "#7FFFD4",
-      accentColor: "#00E5FF",
-    });
-
-    expect(response.status).toBe(200);
-    expect(storeMocks.upsertThemeSettings).toHaveBeenCalledTimes(1);
-    expect(response.body.customerCode).toBe("customer-neon");
-    expect(response.body.themeMode).toBe("dark");
-  });
 
   it("returns home content", async () => {
     const response = await request(app).get("/api/home-content");
@@ -658,29 +608,6 @@ describe("backend api", () => {
     expect(response.body.message).toMatch(/invalid stats entry/i);
   });
 
-  it("accepts light mode for theme settings", async () => {
-    const response = await request(app).put("/api/theme-settings").send({
-      customerCode: "customer-light",
-      brandName: "Customer Light",
-      themeMode: "light",
-      primaryColor: "#6AA8FF",
-      primaryDarkColor: "#2E5EA8",
-      primaryLightColor: "#C2DCFF",
-      accentColor: "#FFD966",
-    });
-
-    expect(response.status).toBe(200);
-    expect(response.body.themeMode).toBe("light");
-  });
-
-  it("rejects invalid theme color values", async () => {
-    const response = await request(app).put("/api/theme-settings").send({
-      primaryColor: "not-a-hex",
-    });
-
-    expect(response.status).toBe(400);
-    expect(response.body.message).toMatch(/hex/i);
-  });
 
   it("uploads image and returns image metadata", async () => {
     const response = await request(app)

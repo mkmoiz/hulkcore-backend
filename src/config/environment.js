@@ -42,13 +42,13 @@ export const PORT = Number(process.env.PORT) || 4000;
 export const MAX_IMAGE_FILE_SIZE_BYTES = readPositiveIntegerEnv("MAX_IMAGE_FILE_SIZE_BYTES", 5 * 1024 * 1024);
 export const MAX_REPORT_FILE_SIZE_BYTES = readPositiveIntegerEnv("MAX_REPORT_FILE_SIZE_BYTES", 20 * 1024 * 1024);
 export const THEME_CODE_PATTERN = /^[a-z0-9_-]{2,64}$/;
-export const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/;
+
 export const HOME_ICON_KEY_PATTERN = /^[a-z0-9-]{2,64}$/;
 export const CUSTOMER_REF_PATTERN = /^[a-zA-Z0-9_-]{3,128}$/;
 export const PHONE_E164_PATTERN = /^\+[1-9]\d{7,14}$/;
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const OTP_CODE_PATTERN = /^\d{4,8}$/;
-export const THEME_MODES = new Set(["light", "dark", "night"]);
+
 export const LEVEL_RULE_MODES = new Set(["CURATED", "DYNAMIC"]);
 export const LEVEL_SORT_MODES = new Set(["featured", "newest", "price_low_high", "price_high_low", "name_az"]);
 export const OTP_TTL_MS = Math.max(30_000, Number(process.env.OTP_TTL_MS) || 5 * 60 * 1000);

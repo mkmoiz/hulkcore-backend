@@ -1,26 +1,5 @@
-export { DEFAULT_THEME_SETTINGS } from "../constants/theme.constants.js";
-export { DEFAULT_HOME_CONTENT } from "../constants/home-content.constants.js";
 
 export { initStore } from "../store/init-store.js";
-
-export {
-  getThemeSettings,
-  upsertThemeSettings,
-  getHomeContent,
-  upsertHomeContent,
-} from "../services/theme.service.js";
-
-export {
-  getNavMenus,
-  findNavMenuById,
-  findNavMenuByKey,
-  getNavMenuDraftById,
-  createNavMenu,
-  updateNavMenuById,
-  replaceNavMenuItems,
-  publishNavMenuById,
-  getPublishedNavMenuByKey,
-} from "../services/nav.service.js";
 
 export {
   getCategories,
@@ -46,6 +25,8 @@ export {
   replaceLevelProductAssignments,
   getOfferProducts,
   replaceOfferProducts,
+  getHomepageProducts,
+  replaceHomepageProducts,
   getComboOffers,
   findComboOfferById,
   createComboOffer,
