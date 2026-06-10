@@ -445,6 +445,15 @@ app.post("/api/payments/razorpay/verify-and-checkout", async (req, res, next) =>
       shippingFee: 0,
     });
 
+    if (SHIPROCKET_AUTO_CREATE_ORDER) {
+      try {
+        const syncedOrder = await createShiprocketOrderForOrder(order.id);
+        return res.status(201).json({ customerRef, order: syncedOrder });
+      } catch (error) {
+        console.warn("Shiprocket auto-create failed:", error?.message || error);
+      }
+    }
+
     return res.status(201).json({ customerRef, order });
   } catch (error) {
     next(error);

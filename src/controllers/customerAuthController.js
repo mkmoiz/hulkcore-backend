@@ -30,7 +30,12 @@ app.post("/api/auth/otp/request", async (req, res, next) => {
       attemptsRemaining: OTP_MAX_ATTEMPTS,
     });
 
-    const delivery = await sendOtpWithMsg91(phoneNumber, otpCode);
+    let delivery = { provider: "msg91_dev" };
+    if (process.env.NODE_ENV === "production") {
+      delivery = await sendOtpWithMsg91(phoneNumber, otpCode);
+    } else {
+      console.log(`[DEV MODE] Skipping Msg91. Phone OTP: ${otpCode}`);
+    }
 
     return res.status(201).json({
       challengeId: challenge.id,
@@ -119,7 +124,13 @@ app.post(["/api/auth/email/otp/request", "/api/auth/email/request"], async (req,
       attemptsRemaining: OTP_MAX_ATTEMPTS,
     });
 
-    const delivery = await sendOtpWithZeptoMail(email, otpCode);
+    let delivery;
+    if (process.env.EMAIL_PROVIDER === "mailtrap") {
+      delivery = await sendOtpWithMailtrap(email, otpCode);
+    } else {
+      delivery = await sendOtpWithZeptoMail(email, otpCode);
+    }
+    console.log(`[DEV MODE] Real email dispatched! Email OTP: ${otpCode}`);
 
     return res.status(201).json({
       challengeId: challenge.id,

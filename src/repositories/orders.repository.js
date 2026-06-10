@@ -106,6 +106,14 @@ export async function findOrderRowById(orderId) {
         gateway_order_id AS gatewayOrderId,
         gateway_payment_id AS gatewayPaymentId,
         gateway_signature AS gatewaySignature,
+        fulfillment_provider AS fulfillmentProvider,
+        fulfillment_order_id AS fulfillmentOrderId,
+        fulfillment_shipment_id AS fulfillmentShipmentId,
+        fulfillment_awb_code AS fulfillmentAwbCode,
+        fulfillment_courier_name AS fulfillmentCourierName,
+        fulfillment_status AS fulfillmentStatus,
+        fulfillment_synced_at AS fulfillmentSyncedAt,
+        fulfillment_payload_json AS fulfillmentPayloadJson,
         currency,
         status,
         subtotal,
@@ -217,6 +225,14 @@ export async function getOrdersByCustomerRef(customerRef) {
         gateway_order_id AS gatewayOrderId,
         gateway_payment_id AS gatewayPaymentId,
         gateway_signature AS gatewaySignature,
+        fulfillment_provider AS fulfillmentProvider,
+        fulfillment_order_id AS fulfillmentOrderId,
+        fulfillment_shipment_id AS fulfillmentShipmentId,
+        fulfillment_awb_code AS fulfillmentAwbCode,
+        fulfillment_courier_name AS fulfillmentCourierName,
+        fulfillment_status AS fulfillmentStatus,
+        fulfillment_synced_at AS fulfillmentSyncedAt,
+        fulfillment_payload_json AS fulfillmentPayloadJson,
         currency,
         status,
         subtotal,
@@ -292,6 +308,14 @@ export async function getOrdersForAdmin(options = {}) {
         gateway_order_id AS gatewayOrderId,
         gateway_payment_id AS gatewayPaymentId,
         gateway_signature AS gatewaySignature,
+        fulfillment_provider AS fulfillmentProvider,
+        fulfillment_order_id AS fulfillmentOrderId,
+        fulfillment_shipment_id AS fulfillmentShipmentId,
+        fulfillment_awb_code AS fulfillmentAwbCode,
+        fulfillment_courier_name AS fulfillmentCourierName,
+        fulfillment_status AS fulfillmentStatus,
+        fulfillment_synced_at AS fulfillmentSyncedAt,
+        fulfillment_payload_json AS fulfillmentPayloadJson,
         currency,
         status,
         subtotal,
@@ -338,6 +362,16 @@ export async function updateOrderById(orderId, input = {}) {
   const normalizedGatewayOrderId = normalizeText(input?.gatewayOrderId);
   const normalizedGatewayPaymentId = normalizeText(input?.gatewayPaymentId);
   const normalizedGatewaySignature = normalizeText(input?.gatewaySignature);
+  const normalizedFulfillmentProvider = normalizeText(input?.fulfillmentProvider).toLowerCase();
+  const normalizedFulfillmentOrderId = normalizeText(input?.fulfillmentOrderId);
+  const normalizedFulfillmentShipmentId = normalizeText(input?.fulfillmentShipmentId);
+  const normalizedFulfillmentAwbCode = normalizeText(input?.fulfillmentAwbCode);
+  const normalizedFulfillmentCourierName = normalizeText(input?.fulfillmentCourierName);
+  const normalizedFulfillmentStatus = normalizeText(input?.fulfillmentStatus).toLowerCase();
+  const fulfillmentPayloadJson =
+    input?.fulfillmentPayloadJson === null || typeof input?.fulfillmentPayloadJson === "string"
+      ? input.fulfillmentPayloadJson
+      : undefined;
 
   const updates = [];
   const params = [];
@@ -364,6 +398,38 @@ export async function updateOrderById(orderId, input = {}) {
   if (normalizedGatewaySignature) {
     updates.push("gateway_signature = ?");
     params.push(normalizedGatewaySignature);
+  }
+  if (normalizedFulfillmentProvider) {
+    updates.push("fulfillment_provider = ?");
+    params.push(normalizedFulfillmentProvider);
+  }
+  if (normalizedFulfillmentOrderId) {
+    updates.push("fulfillment_order_id = ?");
+    params.push(normalizedFulfillmentOrderId);
+  }
+  if (normalizedFulfillmentShipmentId) {
+    updates.push("fulfillment_shipment_id = ?");
+    params.push(normalizedFulfillmentShipmentId);
+  }
+  if (normalizedFulfillmentAwbCode) {
+    updates.push("fulfillment_awb_code = ?");
+    params.push(normalizedFulfillmentAwbCode);
+  }
+  if (normalizedFulfillmentCourierName) {
+    updates.push("fulfillment_courier_name = ?");
+    params.push(normalizedFulfillmentCourierName);
+  }
+  if (normalizedFulfillmentStatus) {
+    updates.push("fulfillment_status = ?");
+    params.push(normalizedFulfillmentStatus);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "fulfillmentSyncedAt")) {
+    updates.push("fulfillment_synced_at = ?");
+    params.push(input.fulfillmentSyncedAt || null);
+  }
+  if (fulfillmentPayloadJson !== undefined) {
+    updates.push("fulfillment_payload_json = ?");
+    params.push(fulfillmentPayloadJson);
   }
 
   if (updates.length === 0) {
@@ -408,6 +474,14 @@ export async function insertOrderRow(entry, connection = getPool()) {
         gateway_order_id,
         gateway_payment_id,
         gateway_signature,
+        fulfillment_provider,
+        fulfillment_order_id,
+        fulfillment_shipment_id,
+        fulfillment_awb_code,
+        fulfillment_courier_name,
+        fulfillment_status,
+        fulfillment_synced_at,
+        fulfillment_payload_json,
         currency,
         status,
         subtotal,
@@ -416,7 +490,7 @@ export async function insertOrderRow(entry, connection = getPool()) {
         placed_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       entry.orderId,
@@ -432,6 +506,14 @@ export async function insertOrderRow(entry, connection = getPool()) {
       entry.gatewayOrderId,
       entry.gatewayPaymentId,
       entry.gatewaySignature,
+      entry.fulfillmentProvider || "",
+      entry.fulfillmentOrderId || "",
+      entry.fulfillmentShipmentId || "",
+      entry.fulfillmentAwbCode || "",
+      entry.fulfillmentCourierName || "",
+      entry.fulfillmentStatus || "",
+      entry.fulfillmentSyncedAt || null,
+      entry.fulfillmentPayloadJson || null,
       entry.currency,
       entry.status,
       entry.subtotal,

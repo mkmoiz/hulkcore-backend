@@ -31,6 +31,15 @@ import {
 } from "../repositories/users.repository.js";
 
 const SIMPLE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INDIA_PINCODE_PATTERN = /^\d{6}$/;
+
+function normalizeCountryForShipping(country) {
+  const normalizedCountry = normalizeText(country).toLowerCase();
+  if (!normalizedCountry || normalizedCountry === "in" || normalizedCountry === "india") {
+    return "India";
+  }
+  return country;
+}
 
 export async function findUserByPhone(phone) {
   const normalizedPhone = normalizePhone(phone);
@@ -53,8 +62,8 @@ export async function upsertUserProfile(userId, input) {
   const addressLine2 = normalizeText(input?.addressLine2);
   const city = normalizeText(input?.city);
   const state = normalizeText(input?.state);
-  const postalCode = normalizeText(input?.postalCode);
-  const country = normalizeText(input?.country);
+  const postalCode = normalizeText(input?.postalCode).replace(/\D/g, "");
+  const country = normalizeCountryForShipping(input?.country);
 
   if (!fullName) {
     throw createStoreError("Full name is required.", "AUTH_PROFILE_NAME_REQUIRED", 400);
@@ -62,6 +71,25 @@ export async function upsertUserProfile(userId, input) {
 
   if (!email || !SIMPLE_EMAIL_PATTERN.test(email)) {
     throw createStoreError("Valid email is required.", "AUTH_PROFILE_EMAIL_REQUIRED", 400);
+  }
+
+  const hasAnyAddress = Boolean(addressLine1 || addressLine2 || city || state || postalCode);
+  if (hasAnyAddress) {
+    if (addressLine1.length < 6) {
+      throw createStoreError("Address line 1 should be at least 6 characters.", "AUTH_PROFILE_ADDRESS_REQUIRED", 400);
+    }
+    if (city.length < 2) {
+      throw createStoreError("City is required for shipping address.", "AUTH_PROFILE_CITY_REQUIRED", 400);
+    }
+    if (state.length < 2) {
+      throw createStoreError("State is required for shipping address.", "AUTH_PROFILE_STATE_REQUIRED", 400);
+    }
+    if (!INDIA_PINCODE_PATTERN.test(postalCode)) {
+      throw createStoreError("Enter a valid 6-digit PIN code.", "AUTH_PROFILE_PIN_REQUIRED", 400);
+    }
+    if (country !== "India") {
+      throw createStoreError("Shipping address country must be India.", "AUTH_PROFILE_COUNTRY_REQUIRED", 400);
+    }
   }
 
   let updatedRow;

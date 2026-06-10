@@ -70,6 +70,14 @@ export {
 } from "../services/checkout.service.js";
 
 export {
+  assignShiprocketAwbForOrder,
+  buildShiprocketOrderPayload,
+  createShiprocketOrderForOrder,
+  isShiprocketConfigured,
+  refreshShiprocketTrackingForOrder,
+} from "../services/shiprocket.service.js";
+
+export {
   findUserByPhone,
   upsertUserProfile,
   createOtpChallenge,

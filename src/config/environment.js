@@ -74,6 +74,15 @@ export const COOKIE_SAME_SITE = (() => {
   return "Lax";
 })();
 export const RAZORPAY_API_BASE_URL = "https://api.razorpay.com/v1";
+export const SHIPROCKET_API_BASE_URL =
+  cleanText(process.env.SHIPROCKET_API_BASE_URL) || "https://apiv2.shiprocket.in/v1/external";
+export const SHIPROCKET_AUTO_CREATE_ORDER = cleanText(process.env.SHIPROCKET_AUTO_CREATE_ORDER).toLowerCase() === "true";
+export const SHIPROCKET_DEFAULT_PICKUP_LOCATION = cleanText(process.env.SHIPROCKET_PICKUP_LOCATION);
+export const SHIPROCKET_DEFAULT_CHANNEL_ID = cleanText(process.env.SHIPROCKET_CHANNEL_ID);
+export const SHIPROCKET_DEFAULT_PACKAGE_LENGTH_CM = Number(process.env.SHIPROCKET_PACKAGE_LENGTH_CM) || 10;
+export const SHIPROCKET_DEFAULT_PACKAGE_BREADTH_CM = Number(process.env.SHIPROCKET_PACKAGE_BREADTH_CM) || 10;
+export const SHIPROCKET_DEFAULT_PACKAGE_HEIGHT_CM = Number(process.env.SHIPROCKET_PACKAGE_HEIGHT_CM) || 10;
+export const SHIPROCKET_DEFAULT_PACKAGE_WEIGHT_KG = Number(process.env.SHIPROCKET_PACKAGE_WEIGHT_KG) || 0.5;
 export const ADMIN_ROLE_HEADER = "x-admin-role";
 export const ADMIN_TOKEN_HEADER = "x-admin-token";
 export const ADMIN_ROLE_VALUE = "admin";

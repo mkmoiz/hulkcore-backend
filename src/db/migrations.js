@@ -113,6 +113,74 @@ async function ensureOrderPaymentColumns() {
   }
 }
 
+async function ensureOrderFulfillmentColumns() {
+  const columnAdditions = [
+    {
+      name: "fulfillment_provider",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_provider VARCHAR(64) NOT NULL DEFAULT '' AFTER gateway_signature
+      `,
+    },
+    {
+      name: "fulfillment_order_id",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_order_id VARCHAR(128) NOT NULL DEFAULT '' AFTER fulfillment_provider
+      `,
+    },
+    {
+      name: "fulfillment_shipment_id",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_shipment_id VARCHAR(128) NOT NULL DEFAULT '' AFTER fulfillment_order_id
+      `,
+    },
+    {
+      name: "fulfillment_awb_code",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_awb_code VARCHAR(128) NOT NULL DEFAULT '' AFTER fulfillment_shipment_id
+      `,
+    },
+    {
+      name: "fulfillment_courier_name",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_courier_name VARCHAR(191) NOT NULL DEFAULT '' AFTER fulfillment_awb_code
+      `,
+    },
+    {
+      name: "fulfillment_status",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_status VARCHAR(64) NOT NULL DEFAULT '' AFTER fulfillment_courier_name
+      `,
+    },
+    {
+      name: "fulfillment_synced_at",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_synced_at DATETIME(3) NULL AFTER fulfillment_status
+      `,
+    },
+    {
+      name: "fulfillment_payload_json",
+      sql: `
+        ALTER TABLE orders
+        ADD COLUMN fulfillment_payload_json LONGTEXT NULL AFTER fulfillment_synced_at
+      `,
+    },
+  ];
+
+  for (const column of columnAdditions) {
+    const [rows] = await getPool().query(`SHOW COLUMNS FROM orders LIKE '${column.name}'`);
+    if (rows.length === 0) {
+      await getPool().query(column.sql);
+    }
+  }
+}
+
 async function ensureOrderPaymentIndexes() {
   const indexDefinitions = [
     {
@@ -122,6 +190,14 @@ async function ensureOrderPaymentIndexes() {
     {
       name: "idx_orders_gateway_order_id",
       sql: "CREATE INDEX idx_orders_gateway_order_id ON orders (gateway_order_id)",
+    },
+    {
+      name: "idx_orders_fulfillment_order_id",
+      sql: "CREATE INDEX idx_orders_fulfillment_order_id ON orders (fulfillment_order_id)",
+    },
+    {
+      name: "idx_orders_fulfillment_shipment_id",
+      sql: "CREATE INDEX idx_orders_fulfillment_shipment_id ON orders (fulfillment_shipment_id)",
     },
   ];
 
@@ -464,6 +540,7 @@ export async function runMigrations() {
   await ensureProductImageKeyColumn();
   await ensureProductCatalogColumns();
   await ensureOrderPaymentColumns();
+  await ensureOrderFulfillmentColumns();
   await ensureOrderPaymentIndexes();
 
   await ensureUserProfileColumns();

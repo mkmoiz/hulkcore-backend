@@ -346,6 +346,15 @@ app.post("/api/checkout", async (req, res, next) => {
       shippingFee: 0,
     });
 
+    if (SHIPROCKET_AUTO_CREATE_ORDER) {
+      try {
+        const syncedOrder = await createShiprocketOrderForOrder(order.id);
+        return res.status(201).json({ customerRef, order: syncedOrder });
+      } catch (error) {
+        console.warn("Shiprocket auto-create failed:", error?.message || error);
+      }
+    }
+
     return res.status(201).json({ customerRef, order });
   } catch (error) {
     next(error);
@@ -393,6 +402,38 @@ app.get("/api/orders/:id", async (req, res, next) => {
     }
 
     return res.json(order);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/orders/:id/tracking/refresh", async (req, res, next) => {
+  try {
+    const authSession = await requireAuthenticatedSession(req, res);
+    if (!authSession) {
+      return;
+    }
+
+    const orderId = cleanText(req.params.id);
+    if (!orderId) {
+      return res.status(400).json({ message: "Order id is required." });
+    }
+
+    const order = await findOrderById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    if (order.customerRef !== authSession.user.id) {
+      return res.status(403).json({ message: "You can only refresh your own order tracking." });
+    }
+
+    if (!order.fulfillment?.awbCode) {
+      return res.status(400).json({ message: "Tracking is not available for this order yet." });
+    }
+
+    const updatedOrder = await refreshShiprocketTrackingForOrder(order.id);
+    return res.json(updatedOrder);
   } catch (error) {
     next(error);
   }
@@ -477,6 +518,67 @@ app.put(["/api/admin/orders/:id/status", "/admin/orders/:id/status"], requireAdm
     }
 
     return res.json(updatedOrder);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(["/api/admin/orders/:id/shiprocket", "/admin/orders/:id/shiprocket"], requireAdminAccess, async (req, res, next) => {
+  try {
+    const orderId = cleanText(req.params.id);
+    if (!orderId) {
+      return res.status(400).json({ message: "Order id is required." });
+    }
+
+    const order = await createShiprocketOrderForOrder(orderId, {
+      force: req.body?.force === true,
+      pickupLocation: req.body?.pickupLocation,
+      channelId: req.body?.channelId,
+      externalOrderId: req.body?.externalOrderId,
+      length: req.body?.length,
+      breadth: req.body?.breadth,
+      height: req.body?.height,
+      weight: req.body?.weight,
+    });
+
+    return res.json(order);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(["/api/admin/orders/:id/shiprocket/awb", "/admin/orders/:id/shiprocket/awb"], requireAdminAccess, async (req, res, next) => {
+  try {
+    const orderId = cleanText(req.params.id);
+    if (!orderId) {
+      return res.status(400).json({ message: "Order id is required." });
+    }
+
+    const order = await assignShiprocketAwbForOrder(orderId, {
+      courierId: req.body?.courierId,
+      shipmentId: req.body?.shipmentId,
+      force: req.body?.force === true,
+      reassign: req.body?.reassign === true,
+    });
+
+    return res.json(order);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(["/api/admin/orders/:id/shiprocket/tracking", "/admin/orders/:id/shiprocket/tracking"], requireAdminAccess, async (req, res, next) => {
+  try {
+    const orderId = cleanText(req.params.id);
+    if (!orderId) {
+      return res.status(400).json({ message: "Order id is required." });
+    }
+
+    const order = await refreshShiprocketTrackingForOrder(orderId, {
+      awbCode: req.body?.awbCode,
+    });
+
+    return res.json(order);
   } catch (error) {
     next(error);
   }
