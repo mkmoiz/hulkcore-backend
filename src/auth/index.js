@@ -312,13 +312,14 @@ export async function sendOtpWithMsg91(phoneNumber, otpCode) {
 }
 
 export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
-  const endpoint = cleanText(process.env.ZEPTOMAIL_API_ENDPOINT) || "https://api.zeptomail.in/v1.1/email";
-  const apiKey = cleanText(process.env.ZEPTOMAIL_SEND_MAIL_TOKEN);
+  const smtpHost = cleanText(process.env.ZEPTOMAIL_SMTP_HOST) || "smtp.zeptomail.in";
+  const smtpPort = Number(process.env.ZEPTOMAIL_SMTP_PORT) || 587;
+  const smtpPassword = cleanText(process.env.ZEPTOMAIL_SEND_MAIL_TOKEN);
   const fromAddress = cleanText(process.env.ZEPTOMAIL_FROM_ADDRESS);
   const fromName = cleanText(process.env.ZEPTOMAIL_FROM_NAME) || "Hulk Core";
 
-  if (!apiKey || !fromAddress) {
-    return { provider: "dev", sent: false };
+  if (!smtpPassword || !fromAddress) {
+    throw createHttpError(500, "ZeptoMail SMTP credentials are not configured (ZEPTOMAIL_SEND_MAIL_TOKEN, ZEPTOMAIL_FROM_ADDRESS).");
   }
 
   const normalizedEmail = cleanText(emailAddress).toLowerCase();
@@ -326,48 +327,32 @@ export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
     throw createHttpError(400, "Valid email is required for ZeptoMail delivery.");
   }
 
-  const authHeader = apiKey.startsWith("Zoho-enczapikey") ? apiKey : `Zoho-enczapikey ${apiKey}`;
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: authHeader,
+  const transport = nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpPort === 465,
+    auth: {
+      user: "emailapikey",
+      pass: smtpPassword,
     },
-    body: JSON.stringify({
-      from: {
-        address: fromAddress,
-        name: fromName,
-      },
-      to: [
-        {
-          email_address: {
-            address: normalizedEmail,
-          },
-        },
-      ],
-      subject: "Your Hulk Core login OTP",
-      htmlbody: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111"><p>Your OTP is <strong style="font-size:20px">${otpCode}</strong>.</p><p>This code will expire shortly.</p></div>`,
-    }),
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    let errorMessage = "Failed to deliver OTP email via ZeptoMail.";
-    if (payload?.error?.message) {
-      errorMessage = payload.error.message;
-      if (payload.error.details?.[0]?.message) {
-        errorMessage += ` (${payload.error.details[0].message})`;
-      }
-    } else if (payload?.message) {
-      errorMessage = payload.message;
-    }
+  const mailOptions = {
+    from: {
+      address: fromAddress,
+      name: fromName,
+    },
+    to: [normalizedEmail],
+    subject: "Your Hulk Core login OTP",
+    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111"><p>Your OTP is <strong style="font-size:20px">${otpCode}</strong>.</p><p>This code will expire shortly.</p></div>`,
+  };
 
-    throw createHttpError(502, errorMessage);
+  try {
+    await transport.sendMail(mailOptions);
+    return { provider: "zeptomail", sent: true };
+  } catch (error) {
+    throw createHttpError(502, "Failed to deliver OTP email via ZeptoMail SMTP: " + error.message);
   }
-
-  return { provider: "zeptomail", sent: true };
 }
 
 export async function sendOtpWithMailtrap(emailAddress, otpCode) {
