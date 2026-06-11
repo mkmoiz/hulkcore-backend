@@ -46,6 +46,11 @@ export {
   createCarouselImage,
   updateCarouselImageById,
   deleteCarouselImageById,
+  getAnnouncements,
+  findAnnouncementById,
+  createAnnouncement,
+  updateAnnouncementById,
+  deleteAnnouncementById,
 } from "../services/catalog.service.js";
 
 export {

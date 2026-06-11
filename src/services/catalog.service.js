@@ -55,3 +55,11 @@ export {
   updateCarouselImageById,
   deleteCarouselImageById,
 } from "../repositories/carousel.repository.js";
+
+export {
+  getAnnouncements,
+  findAnnouncementById,
+  createAnnouncement,
+  updateAnnouncementById,
+  deleteAnnouncementById,
+} from "../repositories/announcements.repository.js";

@@ -12,6 +12,7 @@ import paymentsRoutes from "./paymentsRoutes.js";
 import productsRoutes from "./productsRoutes.js";
 import publicCatalogRoutes from "./publicCatalogRoutes.js";
 import adminReviewsRoutes from "./adminReviewsRoutes.js";
+import announcementsRoutes from "./announcementsRoutes.js";
 
 const app = Router();
 
@@ -28,5 +29,6 @@ app.use(customerAuthRoutes);
 app.use(paymentsRoutes);
 app.use(ordersAndCartRoutes);
 app.use(adminReviewsRoutes);
+app.use(announcementsRoutes);
 
 export default app;

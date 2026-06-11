@@ -534,6 +534,21 @@ async function ensureHomepageProductTables() {
   `);
 }
 
+async function ensureAnnouncementItemsTable() {
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS announcement_items (
+      id VARCHAR(64) PRIMARY KEY,
+      text VARCHAR(500) NOT NULL,
+      href VARCHAR(500) NOT NULL DEFAULT '',
+      sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      INDEX idx_announcement_items_order (sort_order, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 export async function runMigrations() {
   await ensureCarouselLinkColumn();
   await ensureCategoryImageColumns();
@@ -550,4 +565,5 @@ export async function runMigrations() {
   await ensureOrderComboItemsTable();
   await ensureProductReviewsTable();
   await ensureHomepageProductTables();
+  await ensureAnnouncementItemsTable();
 }
