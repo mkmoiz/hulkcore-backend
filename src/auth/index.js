@@ -363,7 +363,7 @@ export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
     } else if (payload?.message) {
       errorMessage = payload.message;
     }
-    
+
     throw createHttpError(502, errorMessage);
   }
 
