@@ -344,7 +344,7 @@ export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
     },
     to: [normalizedEmail],
     subject: "Your Hulk Core login OTP",
-    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111"><p>Your OTP is <strong style="font-size:20px">${otpCode}</strong>.</p><p>This code will expire shortly.</p></div>`,
+    html: `<div style="font-family:'Arial',sans-serif;background-color:#08080c;color:#ffffff;padding:40px 20px;text-align:center;border-top:4px solid #39FF14;border-bottom:4px solid #39FF14;"><h1 style="color:#ffffff;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;font-weight:900;">HULK<span style="color:#39FF14;">CORE</span></h1><div style="background-color:#121217;border:1px solid #2a2a35;padding:30px;border-radius:12px;max-width:400px;margin:20px auto;box-shadow:0 0 20px rgba(57,255,20,0.15);"><p style="font-size:16px;color:#a1a1aa;margin-top:0;">Your secure verification code is:</p><div style="font-size:36px;font-weight:900;color:#39FF14;letter-spacing:6px;margin:20px 0;">${otpCode}</div><p style="font-size:13px;color:#71717a;margin-bottom:0;line-height:1.5;">This code will expire shortly.<br>Do not share this with anyone.</p></div><p style="font-size:11px;color:#52525b;margin-top:30px;">© Hulk Core Supplements. All rights reserved.</p></div>`,
   };
 
   try {
@@ -382,7 +382,7 @@ export async function sendOtpWithMailtrap(emailAddress, otpCode) {
     },
     to: [normalizedEmail],
     subject: "Your Hulk Core login OTP",
-    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111"><p>Your OTP is <strong style="font-size:20px">${otpCode}</strong>.</p><p>This code will expire shortly.</p></div>`,
+    html: `<div style="font-family:'Arial',sans-serif;background-color:#08080c;color:#ffffff;padding:40px 20px;text-align:center;border-top:4px solid #39FF14;border-bottom:4px solid #39FF14;"><h1 style="color:#ffffff;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;font-weight:900;">HULK<span style="color:#39FF14;">CORE</span></h1><div style="background-color:#121217;border:1px solid #2a2a35;padding:30px;border-radius:12px;max-width:400px;margin:20px auto;box-shadow:0 0 20px rgba(57,255,20,0.15);"><p style="font-size:16px;color:#a1a1aa;margin-top:0;">Your secure verification code is:</p><div style="font-size:36px;font-weight:900;color:#39FF14;letter-spacing:6px;margin:20px 0;">${otpCode}</div><p style="font-size:13px;color:#71717a;margin-bottom:0;line-height:1.5;">This code will expire shortly.<br>Do not share this with anyone.</p></div><p style="font-size:11px;color:#52525b;margin-top:30px;">© Hulk Core Supplements. All rights reserved.</p></div>`,
   };
 
   try {
