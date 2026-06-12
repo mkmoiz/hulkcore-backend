@@ -55,9 +55,11 @@ export async function createSchema() {
       headline VARCHAR(191) NULL,
       comment TEXT NULL,
       is_approved TINYINT(1) NOT NULL DEFAULT 0,
+      is_highlighted TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME(3) NOT NULL,
       updated_at DATETIME(3) NOT NULL,
       INDEX idx_product_reviews_product (product_id, is_approved, created_at),
+      INDEX idx_product_reviews_highlighted (is_highlighted, created_at),
       CONSTRAINT fk_product_reviews_product
         FOREIGN KEY (product_id)
         REFERENCES products (id)

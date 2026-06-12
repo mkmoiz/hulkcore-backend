@@ -487,9 +487,11 @@ async function ensureProductReviewsTable() {
       headline VARCHAR(191) NULL,
       comment TEXT NULL,
       is_approved TINYINT(1) NOT NULL DEFAULT 0,
+      is_highlighted TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME(3) NOT NULL,
       updated_at DATETIME(3) NOT NULL,
       INDEX idx_product_reviews_product (product_id, is_approved, created_at),
+      INDEX idx_product_reviews_highlighted (is_highlighted, created_at),
       CONSTRAINT fk_product_reviews_product
         FOREIGN KEY (product_id)
         REFERENCES products (id)
@@ -502,6 +504,21 @@ async function ensureProductReviewsTable() {
         ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  const [highlightRows] = await getPool().query("SHOW COLUMNS FROM product_reviews LIKE 'is_highlighted'");
+  if (highlightRows.length === 0) {
+    await getPool().query(`
+      ALTER TABLE product_reviews
+      ADD COLUMN is_highlighted TINYINT(1) NOT NULL DEFAULT 0 AFTER is_approved
+    `);
+    
+    const [indexRows] = await getPool().query("SHOW INDEX FROM product_reviews WHERE Key_name = 'idx_product_reviews_highlighted'");
+    if (indexRows.length === 0) {
+      await getPool().query(`
+        CREATE INDEX idx_product_reviews_highlighted ON product_reviews (is_highlighted, created_at)
+      `);
+    }
+  }
 }
 
 async function ensureHomepageProductTables() {

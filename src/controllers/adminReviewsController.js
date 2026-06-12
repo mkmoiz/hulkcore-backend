@@ -37,6 +37,24 @@ app.put(["/api/admin/reviews/:id/reject", "/admin/reviews/:id/reject"], requireA
   }
 });
 
+app.put(["/api/admin/reviews/:id/highlight", "/admin/reviews/:id/highlight"], requireAdminAccess, async (req, res, next) => {
+  try {
+    const review = await highlightReview(req.params.id);
+    res.json(review);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put(["/api/admin/reviews/:id/unhighlight", "/admin/reviews/:id/unhighlight"], requireAdminAccess, async (req, res, next) => {
+  try {
+    const review = await unhighlightReview(req.params.id);
+    res.json(review);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.delete(["/api/admin/reviews/:id", "/admin/reviews/:id"], requireAdminAccess, async (req, res, next) => {
   try {
     const success = await deleteReviewById(req.params.id, req.query.productId);

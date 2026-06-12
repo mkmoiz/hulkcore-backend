@@ -10,6 +10,7 @@ export function mapProductReview(row) {
     headline: row.headline || "",
     comment: row.comment || "",
     isApproved: Boolean(row.isApproved),
+    isHighlighted: Boolean(row.isHighlighted),
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   };

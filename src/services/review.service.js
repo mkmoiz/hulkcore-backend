@@ -5,6 +5,8 @@ import {
   getApprovedReviewsByProduct,
   getAllReviewsRow,
   updateReviewApproval,
+  updateReviewHighlight,
+  getHighlightedReviewsRow,
   deleteReviewRow,
   getReviewStatsForProduct,
 } from "../repositories/review.repository.js";
@@ -60,6 +62,20 @@ export async function rejectReview(id) {
     await __syncProductRatingStats(updatedReview.productId);
   }
   return updatedReview;
+}
+
+export async function highlightReview(id) {
+  const reviewId = cleanText(id);
+  return updateReviewHighlight(reviewId, true);
+}
+
+export async function unhighlightReview(id) {
+  const reviewId = cleanText(id);
+  return updateReviewHighlight(reviewId, false);
+}
+
+export async function fetchHighlightedReviews() {
+  return getHighlightedReviewsRow();
 }
 
 export async function deleteReviewById(id, productId) {

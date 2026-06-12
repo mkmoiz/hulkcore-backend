@@ -13,6 +13,7 @@ import productsRoutes from "./productsRoutes.js";
 import publicCatalogRoutes from "./publicCatalogRoutes.js";
 import adminReviewsRoutes from "./adminReviewsRoutes.js";
 import announcementsRoutes from "./announcementsRoutes.js";
+import publicReviewsRoutes from "./publicReviewsRoutes.js";
 
 const app = Router();
 
@@ -30,5 +31,6 @@ app.use(paymentsRoutes);
 app.use(ordersAndCartRoutes);
 app.use(adminReviewsRoutes);
 app.use(announcementsRoutes);
+app.use(publicReviewsRoutes);
 
 export default app;

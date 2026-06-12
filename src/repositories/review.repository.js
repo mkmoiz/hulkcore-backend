@@ -12,6 +12,7 @@ function buildSelectBody() {
       r.headline,
       r.comment,
       r.is_approved AS isApproved,
+      r.is_highlighted AS isHighlighted,
       r.created_at AS createdAt,
       r.updated_at AS updatedAt
     FROM product_reviews r
@@ -107,6 +108,33 @@ export async function updateReviewApproval(id, isApproved) {
       WHERE id = ?
     `,
     [isApproved ? 1 : 0, now, id],
+  );
+
+  return findReviewById(id);
+}
+
+export async function getHighlightedReviewsRow() {
+  const [rows] = await getPool().query(
+    `
+      ${buildSelectBody()}
+      WHERE r.is_highlighted = 1 AND r.is_approved = 1
+      ORDER BY r.created_at DESC
+      LIMIT 10
+    `
+  );
+
+  return rows.map(mapProductReview);
+}
+
+export async function updateReviewHighlight(id, isHighlighted) {
+  const now = new Date();
+  await getPool().query(
+    `
+      UPDATE product_reviews
+      SET is_highlighted = ?, updated_at = ?
+      WHERE id = ?
+    `,
+    [isHighlighted ? 1 : 0, now, id],
   );
 
   return findReviewById(id);
