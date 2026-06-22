@@ -118,12 +118,7 @@ app.post(["/api/auth/email/otp/request", "/api/auth/email/request"], async (req,
       attemptsRemaining: OTP_MAX_ATTEMPTS,
     });
 
-    let delivery;
-    if (process.env.EMAIL_PROVIDER === "mailtrap") {
-      delivery = await sendOtpWithMailtrap(email, otpCode);
-    } else {
-      delivery = await sendOtpWithZeptoMail(email, otpCode);
-    }
+    const delivery = await sendOtpWithZeptoMail(email, otpCode);
     return res.status(201).json({
       challengeId: challenge.id,
       email: maskEmailAddress(email),
