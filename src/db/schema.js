@@ -4,6 +4,26 @@ export async function createSchema() {
   const pool = getPool();
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id VARCHAR(64) PRIMARY KEY,
+      phone VARCHAR(64) NULL,
+      full_name VARCHAR(191) NOT NULL DEFAULT '',
+      email VARCHAR(191) NULL,
+      address_line1 VARCHAR(191) NULL,
+      address_line2 VARCHAR(191) NULL,
+      city VARCHAR(128) NULL,
+      state VARCHAR(128) NULL,
+      postal_code VARCHAR(32) NULL,
+      country VARCHAR(64) NULL,
+      is_verified TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      UNIQUE KEY uq_users_phone (phone),
+      UNIQUE KEY uq_users_email (email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS categories (
       id VARCHAR(64) PRIMARY KEY,
       name VARCHAR(191) NOT NULL,
@@ -186,26 +206,6 @@ export async function createSchema() {
         REFERENCES carts (id)
         ON UPDATE CASCADE
         ON DELETE SET NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id VARCHAR(64) PRIMARY KEY,
-      phone VARCHAR(64) NULL,
-      full_name VARCHAR(191) NOT NULL DEFAULT '',
-      email VARCHAR(191) NULL,
-      address_line1 VARCHAR(191) NULL,
-      address_line2 VARCHAR(191) NULL,
-      city VARCHAR(128) NULL,
-      state VARCHAR(128) NULL,
-      postal_code VARCHAR(32) NULL,
-      country VARCHAR(64) NULL,
-      is_verified TINYINT(1) NOT NULL DEFAULT 0,
-      created_at DATETIME(3) NOT NULL,
-      updated_at DATETIME(3) NOT NULL,
-      UNIQUE KEY uq_users_phone (phone),
-      UNIQUE KEY uq_users_email (email)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
