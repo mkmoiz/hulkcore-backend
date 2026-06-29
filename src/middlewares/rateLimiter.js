@@ -8,9 +8,5 @@ export const otpRequestLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   message: {
     message: "Too many OTP requests from this IP. Please try again after 5 minutes.",
-  },
-  keyGenerator: (req) => {
-    // If the app is behind a proxy (like Cloudflare or ngrok), use the forwarded IP
-    return req.headers["x-forwarded-for"] || req.ip;
   }
 });

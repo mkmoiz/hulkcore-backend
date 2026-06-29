@@ -54,6 +54,8 @@ app.post("/api/webhooks/zeptomail", async (req, res) => {
     }
 
     const body = req.body;
+    console.log("[webhook] Raw ZeptoMail payload body received:", JSON.stringify(body));
+
     if (!body || typeof body !== "object") {
       console.warn("[webhook] ZeptoMail empty/invalid payload received");
       return res.status(200).json({ status: "ignored", reason: "invalid_payload" });

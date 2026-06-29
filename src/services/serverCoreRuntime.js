@@ -5,6 +5,10 @@ import { CORS_ALLOWED_ORIGIN_SET, normalizeOriginValue } from "../config/environ
 
 const app = express();
 
+// Trust proxy header (X-Forwarded-For) from Cloudflare/Nginx/ngrok
+app.set("trust proxy", 1);
+
+
 app.use(
   cors({
     credentials: true,
