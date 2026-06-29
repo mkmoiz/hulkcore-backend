@@ -6,13 +6,13 @@ Object.assign(globalThis, core);
 
 app.get(["/api/public/homepage-products", "/public/homepage-products"], async (_req, res, next) => {
   try {
-    const payload = await getHomepageProducts(false);
-    return res.json({
-      section: payload.section,
-      items: payload.section.isActive
-        ? payload.items.filter((entry) => entry.product?.isActive)
-        : [],
-    });
+    const sections = await getHomepageProducts(false);
+    return res.json(
+      sections.map((sec) => ({
+        section: sec.section,
+        items: sec.items.filter((entry) => entry.product?.isActive),
+      }))
+    );
   } catch (error) {
     next(error);
   }

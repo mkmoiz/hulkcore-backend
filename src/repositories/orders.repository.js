@@ -1,27 +1,13 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapOrder } from "../mappers/order.mapper.js";
 import { normalizeCustomerRef, normalizeText } from "../utils/normalize.js";
 import { toIsoString } from "../utils/dates.js";
 
-export async function findOrderItemRowsByOrderId(orderId, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        order_id AS orderId,
-        product_id AS productId,
-        product_name AS productName,
-        quantity,
-        unit_price AS unitPrice,
-        line_total AS lineTotal,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM order_items
-      WHERE order_id = ?
-      ORDER BY created_at ASC
-    `,
-    [orderId],
-  );
+export async function findOrderItemRowsByOrderId(orderId, prismaClient = getPrisma()) {
+  const rows = await prismaClient.orderItem.findMany({
+    where: { orderId },
+    orderBy: { createdAt: "asc" },
+  });
 
   return rows.map((row) => ({
     id: row.id,
@@ -36,28 +22,11 @@ export async function findOrderItemRowsByOrderId(orderId, connection = getPool()
   }));
 }
 
-export async function findOrderComboItemRowsByOrderId(orderId, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        order_id AS orderId,
-        combo_offer_id AS comboOfferId,
-        combo_title AS comboTitle,
-        combo_description AS comboDescription,
-        banner_image_url AS bannerImageUrl,
-        products_json AS productsJson,
-        quantity,
-        unit_price AS unitPrice,
-        line_total AS lineTotal,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM order_combo_items
-      WHERE order_id = ?
-      ORDER BY created_at ASC
-    `,
-    [orderId],
-  );
+export async function findOrderComboItemRowsByOrderId(orderId, prismaClient = getPrisma()) {
+  const rows = await prismaClient.orderComboItem.findMany({
+    where: { orderId },
+    orderBy: { createdAt: "asc" },
+  });
 
   return rows.map((row) => {
     let products = [];
@@ -90,50 +59,16 @@ export async function findOrderComboItemRowsByOrderId(orderId, connection = getP
 }
 
 export async function findOrderRowById(orderId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        id,
-        cart_id AS cartId,
-        customer_ref AS customerRef,
-        customer_name AS customerName,
-        customer_email AS customerEmail,
-        customer_phone AS customerPhone,
-        shipping_address_json AS shippingAddressJson,
-        payment_method AS paymentMethod,
-        payment_status AS paymentStatus,
-        payment_gateway AS paymentGateway,
-        gateway_order_id AS gatewayOrderId,
-        gateway_payment_id AS gatewayPaymentId,
-        gateway_signature AS gatewaySignature,
-        fulfillment_provider AS fulfillmentProvider,
-        fulfillment_order_id AS fulfillmentOrderId,
-        fulfillment_shipment_id AS fulfillmentShipmentId,
-        fulfillment_awb_code AS fulfillmentAwbCode,
-        fulfillment_courier_name AS fulfillmentCourierName,
-        fulfillment_status AS fulfillmentStatus,
-        fulfillment_synced_at AS fulfillmentSyncedAt,
-        fulfillment_payload_json AS fulfillmentPayloadJson,
-        currency,
-        status,
-        subtotal,
-        shipping_fee AS shippingFee,
-        total,
-        placed_at AS placedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM orders
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [orderId],
-  );
+  const row = await getPrisma().order.findUnique({
+    where: { id: orderId },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 export async function findOrderById(id) {
-  const order = mapOrder(await findOrderRowById(id));
+  const orderRow = await findOrderRowById(id);
+  const order = mapOrder(orderRow);
   if (!order) {
     return null;
   }
@@ -157,18 +92,16 @@ export async function findOrderByGatewayPaymentId(gatewayPaymentId, paymentGatew
     return null;
   }
 
-  const [rows] = await getPool().query(
-    `
-      SELECT id
-      FROM orders
-      WHERE payment_gateway = ? AND gateway_payment_id = ?
-      ORDER BY created_at DESC
-      LIMIT 1
-    `,
-    [normalizedGateway, normalizedGatewayPaymentId],
-  );
+  const row = await getPrisma().order.findFirst({
+    where: {
+      paymentGateway: normalizedGateway,
+      gatewayPaymentId: normalizedGatewayPaymentId,
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
 
-  const orderId = normalizeText(rows[0]?.id);
+  const orderId = normalizeText(row?.id);
   if (!orderId) {
     return null;
   }
@@ -184,18 +117,16 @@ export async function findOrderByGatewayOrderId(gatewayOrderId, paymentGateway =
     return null;
   }
 
-  const [rows] = await getPool().query(
-    `
-      SELECT id
-      FROM orders
-      WHERE payment_gateway = ? AND gateway_order_id = ?
-      ORDER BY created_at DESC
-      LIMIT 1
-    `,
-    [normalizedGateway, normalizedGatewayOrderId],
-  );
+  const row = await getPrisma().order.findFirst({
+    where: {
+      paymentGateway: normalizedGateway,
+      gatewayOrderId: normalizedGatewayOrderId,
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
 
-  const orderId = normalizeText(rows[0]?.id);
+  const orderId = normalizeText(row?.id);
   if (!orderId) {
     return null;
   }
@@ -209,45 +140,11 @@ export async function getOrdersByCustomerRef(customerRef) {
     return [];
   }
 
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        id,
-        cart_id AS cartId,
-        customer_ref AS customerRef,
-        customer_name AS customerName,
-        customer_email AS customerEmail,
-        customer_phone AS customerPhone,
-        shipping_address_json AS shippingAddressJson,
-        payment_method AS paymentMethod,
-        payment_status AS paymentStatus,
-        payment_gateway AS paymentGateway,
-        gateway_order_id AS gatewayOrderId,
-        gateway_payment_id AS gatewayPaymentId,
-        gateway_signature AS gatewaySignature,
-        fulfillment_provider AS fulfillmentProvider,
-        fulfillment_order_id AS fulfillmentOrderId,
-        fulfillment_shipment_id AS fulfillmentShipmentId,
-        fulfillment_awb_code AS fulfillmentAwbCode,
-        fulfillment_courier_name AS fulfillmentCourierName,
-        fulfillment_status AS fulfillmentStatus,
-        fulfillment_synced_at AS fulfillmentSyncedAt,
-        fulfillment_payload_json AS fulfillmentPayloadJson,
-        currency,
-        status,
-        subtotal,
-        shipping_fee AS shippingFee,
-        total,
-        placed_at AS placedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM orders
-      WHERE customer_ref = ?
-      ORDER BY placed_at DESC
-      LIMIT 25
-    `,
-    [normalizedCustomerRef],
-  );
+  const rows = await getPrisma().order.findMany({
+    where: { customerRef: normalizedCustomerRef },
+    orderBy: { placedAt: "desc" },
+    take: 25,
+  });
 
   const orders = rows.map(mapOrder);
   const withItems = await Promise.all(
@@ -269,69 +166,23 @@ export async function getOrdersForAdmin(options = {}) {
   const limit = Number.isInteger(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 200)) : 50;
   const offset = Number.isInteger(parsedOffset) ? Math.max(0, parsedOffset) : 0;
 
-  const filters = [];
-  const filterParams = [];
+  const where = {};
   if (normalizedStatus) {
-    filters.push("status = ?");
-    filterParams.push(normalizedStatus);
+    where.status = normalizedStatus;
   }
   if (normalizedPaymentStatus) {
-    filters.push("payment_status = ?");
-    filterParams.push(normalizedPaymentStatus);
+    where.paymentStatus = normalizedPaymentStatus;
   }
 
-  const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
-
-  const [totalRows] = await getPool().query(
-    `
-      SELECT COUNT(*) AS total
-      FROM orders
-      ${whereClause}
-    `,
-    [...filterParams],
-  );
-  const total = Number(totalRows?.[0]?.total ?? 0);
-
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        id,
-        cart_id AS cartId,
-        customer_ref AS customerRef,
-        customer_name AS customerName,
-        customer_email AS customerEmail,
-        customer_phone AS customerPhone,
-        shipping_address_json AS shippingAddressJson,
-        payment_method AS paymentMethod,
-        payment_status AS paymentStatus,
-        payment_gateway AS paymentGateway,
-        gateway_order_id AS gatewayOrderId,
-        gateway_payment_id AS gatewayPaymentId,
-        gateway_signature AS gatewaySignature,
-        fulfillment_provider AS fulfillmentProvider,
-        fulfillment_order_id AS fulfillmentOrderId,
-        fulfillment_shipment_id AS fulfillmentShipmentId,
-        fulfillment_awb_code AS fulfillmentAwbCode,
-        fulfillment_courier_name AS fulfillmentCourierName,
-        fulfillment_status AS fulfillmentStatus,
-        fulfillment_synced_at AS fulfillmentSyncedAt,
-        fulfillment_payload_json AS fulfillmentPayloadJson,
-        currency,
-        status,
-        subtotal,
-        shipping_fee AS shippingFee,
-        total,
-        placed_at AS placedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM orders
-      ${whereClause}
-      ORDER BY placed_at DESC
-      LIMIT ?
-      OFFSET ?
-    `,
-    [...filterParams, limit, offset],
-  );
+  const [total, rows] = await Promise.all([
+    getPrisma().order.count({ where }),
+    getPrisma().order.findMany({
+      where,
+      orderBy: { placedAt: "desc" },
+      take: limit,
+      skip: offset,
+    }),
+  ]);
 
   const orders = rows.map(mapOrder);
   const withItems = await Promise.all(
@@ -373,245 +224,148 @@ export async function updateOrderById(orderId, input = {}) {
       ? input.fulfillmentPayloadJson
       : undefined;
 
-  const updates = [];
-  const params = [];
-  if (normalizedStatus) {
-    updates.push("status = ?");
-    params.push(normalizedStatus);
-  }
-  if (normalizedPaymentStatus) {
-    updates.push("payment_status = ?");
-    params.push(normalizedPaymentStatus);
-  }
-  if (normalizedPaymentGateway) {
-    updates.push("payment_gateway = ?");
-    params.push(normalizedPaymentGateway);
-  }
-  if (normalizedGatewayOrderId) {
-    updates.push("gateway_order_id = ?");
-    params.push(normalizedGatewayOrderId);
-  }
-  if (normalizedGatewayPaymentId) {
-    updates.push("gateway_payment_id = ?");
-    params.push(normalizedGatewayPaymentId);
-  }
-  if (normalizedGatewaySignature) {
-    updates.push("gateway_signature = ?");
-    params.push(normalizedGatewaySignature);
-  }
-  if (normalizedFulfillmentProvider) {
-    updates.push("fulfillment_provider = ?");
-    params.push(normalizedFulfillmentProvider);
-  }
-  if (normalizedFulfillmentOrderId) {
-    updates.push("fulfillment_order_id = ?");
-    params.push(normalizedFulfillmentOrderId);
-  }
-  if (normalizedFulfillmentShipmentId) {
-    updates.push("fulfillment_shipment_id = ?");
-    params.push(normalizedFulfillmentShipmentId);
-  }
-  if (normalizedFulfillmentAwbCode) {
-    updates.push("fulfillment_awb_code = ?");
-    params.push(normalizedFulfillmentAwbCode);
-  }
-  if (normalizedFulfillmentCourierName) {
-    updates.push("fulfillment_courier_name = ?");
-    params.push(normalizedFulfillmentCourierName);
-  }
-  if (normalizedFulfillmentStatus) {
-    updates.push("fulfillment_status = ?");
-    params.push(normalizedFulfillmentStatus);
-  }
+  const data = {};
+  if (normalizedStatus) data.status = normalizedStatus;
+  if (normalizedPaymentStatus) data.paymentStatus = normalizedPaymentStatus;
+  if (normalizedPaymentGateway) data.paymentGateway = normalizedPaymentGateway;
+  if (normalizedGatewayOrderId) data.gatewayOrderId = normalizedGatewayOrderId;
+  if (normalizedGatewayPaymentId) data.gatewayPaymentId = normalizedGatewayPaymentId;
+  if (normalizedGatewaySignature) data.gatewaySignature = normalizedGatewaySignature;
+  if (normalizedFulfillmentProvider) data.fulfillmentProvider = normalizedFulfillmentProvider;
+  if (normalizedFulfillmentOrderId) data.fulfillmentOrderId = normalizedFulfillmentOrderId;
+  if (normalizedFulfillmentShipmentId) data.fulfillmentShipmentId = normalizedFulfillmentShipmentId;
+  if (normalizedFulfillmentAwbCode) data.fulfillmentAwbCode = normalizedFulfillmentAwbCode;
+  if (normalizedFulfillmentCourierName) data.fulfillmentCourierName = normalizedFulfillmentCourierName;
+  if (normalizedFulfillmentStatus) data.fulfillmentStatus = normalizedFulfillmentStatus;
   if (Object.prototype.hasOwnProperty.call(input, "fulfillmentSyncedAt")) {
-    updates.push("fulfillment_synced_at = ?");
-    params.push(input.fulfillmentSyncedAt || null);
+    data.fulfillmentSyncedAt = input.fulfillmentSyncedAt || null;
   }
   if (fulfillmentPayloadJson !== undefined) {
-    updates.push("fulfillment_payload_json = ?");
-    params.push(fulfillmentPayloadJson);
+    data.fulfillmentPayloadJson = fulfillmentPayloadJson;
   }
 
-  if (updates.length === 0) {
+  if (Object.keys(data).length === 0) {
     return findOrderById(normalizedOrderId);
   }
 
   const now = new Date();
-  updates.push("updated_at = ?");
-  params.push(now, normalizedOrderId);
+  data.updatedAt = now;
 
-  const [result] = await getPool().query(
-    `
-      UPDATE orders
-      SET ${updates.join(", ")}
-      WHERE id = ?
-      LIMIT 1
-    `,
-    params,
-  );
-
-  if (!result?.affectedRows) {
-    return null;
+  try {
+    await getPrisma().order.update({
+      where: { id: normalizedOrderId },
+      data,
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
   }
 
   return findOrderById(normalizedOrderId);
 }
 
-export async function insertOrderRow(entry, connection = getPool()) {
-  await connection.query(
-    `
-      INSERT INTO orders (
-        id,
-        cart_id,
-        customer_ref,
-        customer_name,
-        customer_email,
-        customer_phone,
-        shipping_address_json,
-        payment_method,
-        payment_status,
-        payment_gateway,
-        gateway_order_id,
-        gateway_payment_id,
-        gateway_signature,
-        fulfillment_provider,
-        fulfillment_order_id,
-        fulfillment_shipment_id,
-        fulfillment_awb_code,
-        fulfillment_courier_name,
-        fulfillment_status,
-        fulfillment_synced_at,
-        fulfillment_payload_json,
-        currency,
-        status,
-        subtotal,
-        shipping_fee,
-        total,
-        placed_at,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      entry.orderId,
-      entry.cartId,
-      entry.customerRef,
-      entry.customerName,
-      entry.customerEmail,
-      entry.customerPhone,
-      entry.shippingAddressJson,
-      entry.paymentMethod,
-      entry.paymentStatus,
-      entry.paymentGateway,
-      entry.gatewayOrderId,
-      entry.gatewayPaymentId,
-      entry.gatewaySignature,
-      entry.fulfillmentProvider || "",
-      entry.fulfillmentOrderId || "",
-      entry.fulfillmentShipmentId || "",
-      entry.fulfillmentAwbCode || "",
-      entry.fulfillmentCourierName || "",
-      entry.fulfillmentStatus || "",
-      entry.fulfillmentSyncedAt || null,
-      entry.fulfillmentPayloadJson || null,
-      entry.currency,
-      entry.status,
-      entry.subtotal,
-      entry.shippingFee,
-      entry.total,
-      entry.now,
-      entry.now,
-      entry.now,
-    ],
-  );
+export async function insertOrderRow(entry, prismaClient = getPrisma()) {
+  await prismaClient.order.create({
+    data: {
+      id: entry.orderId,
+      cartId: entry.cartId,
+      customerRef: entry.customerRef,
+      customerName: entry.customerName,
+      customerEmail: entry.customerEmail,
+      customerPhone: entry.customerPhone,
+      shippingAddressJson: entry.shippingAddressJson,
+      paymentMethod: entry.paymentMethod,
+      paymentStatus: entry.paymentStatus,
+      paymentGateway: entry.paymentGateway,
+      gatewayOrderId: entry.gatewayOrderId,
+      gatewayPaymentId: entry.gatewayPaymentId,
+      gatewaySignature: entry.gatewaySignature,
+      fulfillmentProvider: entry.fulfillmentProvider || "",
+      fulfillmentOrderId: entry.fulfillmentOrderId || "",
+      fulfillmentShipmentId: entry.fulfillmentShipmentId || "",
+      fulfillmentAwbCode: entry.fulfillmentAwbCode || "",
+      fulfillmentCourierName: entry.fulfillmentCourierName || "",
+      fulfillmentStatus: entry.fulfillmentStatus || "",
+      fulfillmentSyncedAt: entry.fulfillmentSyncedAt || null,
+      fulfillmentPayloadJson: entry.fulfillmentPayloadJson || null,
+      currency: entry.currency,
+      status: entry.status,
+      subtotal: entry.subtotal,
+      shippingFee: entry.shippingFee,
+      total: entry.total,
+      placedAt: entry.now,
+      createdAt: entry.now,
+      updatedAt: entry.now,
+    },
+  });
 }
 
-export async function insertOrderItemRow(item, now, connection = getPool()) {
-  await connection.query(
-    `
-      INSERT INTO order_items (
-        id,
-        order_id,
-        product_id,
-        product_name,
-        quantity,
-        unit_price,
-        line_total,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      item.id,
-      item.orderId,
-      item.productId,
-      item.productName,
-      item.quantity,
-      item.unitPrice,
-      item.lineTotal,
-      now,
-      now,
-    ],
-  );
+export async function insertOrderItemRow(items, now, prismaClient = getPrisma()) {
+  const itemsArray = Array.isArray(items) ? items : [items];
+  if (itemsArray.length === 0) return;
+  await prismaClient.orderItem.createMany({
+    data: itemsArray.map((item) => ({
+      id: item.id,
+      orderId: item.orderId,
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      lineTotal: item.lineTotal,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  });
 }
 
-export async function insertOrderComboItemRow(item, now, connection = getPool()) {
-  await connection.query(
-    `
-      INSERT INTO order_combo_items (
-        id,
-        order_id,
-        combo_offer_id,
-        combo_title,
-        combo_description,
-        banner_image_url,
-        products_json,
-        quantity,
-        unit_price,
-        line_total,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      item.id,
-      item.orderId,
-      item.comboOfferId,
-      item.comboTitle,
-      item.comboDescription,
-      item.bannerImageUrl,
-      item.productsJson,
-      item.quantity,
-      item.unitPrice,
-      item.lineTotal,
-      now,
-      now,
-    ],
-  );
+export async function insertOrderComboItemRow(items, now, prismaClient = getPrisma()) {
+  const itemsArray = Array.isArray(items) ? items : [items];
+  if (itemsArray.length === 0) return;
+  await prismaClient.orderComboItem.createMany({
+    data: itemsArray.map((item) => ({
+      id: item.id,
+      orderId: item.orderId,
+      comboOfferId: item.comboOfferId,
+      comboTitle: item.comboTitle,
+      comboDescription: item.comboDescription || "",
+      bannerImageUrl: item.bannerImageUrl,
+      productsJson: item.productsJson,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      lineTotal: item.lineTotal,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  });
 }
 
-export async function decrementProductStock(productId, quantity, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE products
-      SET stock = stock - ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [quantity, now, productId],
-  );
+export async function decrementProductStock(productId, quantity, now, prismaClient = getPrisma()) {
+  await prismaClient.product.update({
+    where: { id: productId },
+    data: {
+      stock: { decrement: quantity },
+      updatedAt: now,
+    },
+  });
 }
 
-export async function findProductForCheckout(productId, connection = getPool()) {
-  const [productRows] = await connection.query(
-    `
-      SELECT id, name, price, stock, is_active AS isActive
-      FROM products
-      WHERE id = ?
-      LIMIT 1
-      FOR UPDATE
-    `,
-    [productId],
-  );
+export async function findProductForCheckout(productId, prismaClient = getPrisma()) {
+  const row = await prismaClient.product.findUnique({
+    where: { id: productId },
+    select: { id: true, name: true, price: true, stock: true, isActive: true },
+  });
 
-  return productRows[0] ?? null;
+  return row ?? null;
+}
+
+export async function findProductsForCheckout(productIds, prismaClient = getPrisma()) {
+  if (!productIds || productIds.length === 0) {
+    return [];
+  }
+  return prismaClient.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, name: true, price: true, stock: true, isActive: true },
+  });
 }

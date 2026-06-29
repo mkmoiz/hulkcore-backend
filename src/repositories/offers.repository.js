@@ -1,129 +1,85 @@
 import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapProduct } from "../mappers/product.mapper.js";
 import { toIsoString } from "../utils/dates.js";
 import { findProductImageRowsByProductIds, groupProductImageRowsByProductId } from "./product-images.repository.js";
 
 export async function getOfferProducts(includeHidden = true) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        op.id,
-        op.product_id AS productId,
-        op.badge AS offerBadge,
-        op.subtitle AS offerSubtitle,
-        op.position,
-        op.is_active AS isActive,
-        op.created_at AS createdAt,
-        op.updated_at AS updatedAt,
-        p.id AS productIdRef,
-        p.name,
-        p.description,
-        p.image_url AS imageUrl,
-        p.image_key AS imageKey,
-        p.sku,
-        p.badge AS productBadge,
-        p.subtitle AS productSubtitle,
-        p.category_id AS categoryId,
-        p.price,
-        p.original_price AS originalPrice,
-        p.offer_price AS offerPrice,
-        p.stock,
-        p.is_active AS productIsActive,
-        p.created_at AS productCreatedAt,
-        p.updated_at AS productUpdatedAt,
-        c.id AS categoryIdRef,
-        c.name AS categoryName,
-        c.slug AS categorySlug
-      FROM offer_products op
-      JOIN products p ON p.id = op.product_id
-      LEFT JOIN categories c ON c.id = p.category_id
-      ${includeHidden ? "" : "WHERE op.is_active = 1"}
-      ORDER BY op.position ASC, op.created_at ASC
-    `,
-  );
+  const where = includeHidden ? {} : { isActive: true };
+  const rows = await getPrisma().offerProduct.findMany({
+    where,
+    include: {
+      product: {
+        include: { category: true },
+      },
+    },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  });
 
-  const productIds = rows.map((row) => row.productIdRef).filter(Boolean);
+  const productIds = rows.map((row) => row.product?.id).filter(Boolean);
   const imageRows = await findProductImageRowsByProductIds(productIds);
   const imagesByProductId = groupProductImageRowsByProductId(imageRows);
 
   return rows.map((row, index) => ({
     id: row.id,
     productId: row.productId,
-    badge: row.offerBadge ?? "",
-    subtitle: row.offerSubtitle ?? "",
+    badge: row.badge ?? "",
+    subtitle: row.subtitle ?? "",
     position: Number(row.position ?? index),
     isActive: Boolean(row.isActive),
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt),
     product: mapProduct(
       {
-        id: row.productIdRef,
-        name: row.name,
-        description: row.description,
-        imageUrl: row.imageUrl,
-        imageKey: row.imageKey,
-        sku: row.sku,
-        badge: row.productBadge,
-        subtitle: row.productSubtitle,
-        categoryId: row.categoryId,
-        price: row.price,
-        originalPrice: row.originalPrice,
-        offerPrice: row.offerPrice,
-        stock: row.stock,
-        isActive: row.productIsActive,
-        createdAt: row.productCreatedAt,
-        updatedAt: row.productUpdatedAt,
-        categoryIdRef: row.categoryIdRef,
-        categoryName: row.categoryName,
-        categorySlug: row.categorySlug,
+        id: row.product?.id,
+        name: row.product?.name,
+        description: row.product?.description,
+        imageUrl: row.product?.imageUrl,
+        imageKey: row.product?.imageKey,
+        sku: row.product?.sku,
+        badge: row.product?.badge,
+        subtitle: row.product?.subtitle,
+        categoryId: row.product?.categoryId,
+        price: row.product?.price,
+        originalPrice: row.product?.originalPrice,
+        offerPrice: row.product?.offerPrice,
+        stock: row.product?.stock,
+        isActive: row.product?.isActive,
+        createdAt: row.product?.createdAt,
+        updatedAt: row.product?.updatedAt,
+        categoryIdRef: row.product?.category?.id,
+        categoryName: row.product?.category?.name,
+        categorySlug: row.product?.category?.slug,
       },
-      imagesByProductId[row.productIdRef] ?? [],
+      imagesByProductId[row.product?.id] ?? [],
     ),
   }));
 }
 
 export async function replaceOfferProducts(entries) {
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
-
-    await connection.query("DELETE FROM offer_products");
+  await getPrisma().$transaction(async (tx) => {
+    await tx.offerProduct.deleteMany();
     const now = new Date();
+    const records = [];
     for (const [index, entry] of entries.entries()) {
-      await connection.query(
-        `
-          INSERT INTO offer_products (
-            id,
-            product_id,
-            badge,
-            subtitle,
-            position,
-            is_active,
-            created_at,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          createId("ofp"),
-          entry.productId,
-          entry.badge ?? "",
-          entry.subtitle ?? "",
-          index,
-          entry.isActive ? 1 : 0,
-          now,
-          now,
-        ],
-      );
+      records.push({
+        id: createId("ofp"),
+        productId: entry.productId,
+        badge: entry.badge ?? "",
+        subtitle: entry.subtitle ?? "",
+        position: index,
+        isActive: entry.isActive ? true : false,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
 
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+    if (records.length > 0) {
+      await tx.offerProduct.createMany({
+        data: records,
+      });
+    }
+  });
 
   return getOfferProducts(true);
 }

@@ -11,6 +11,7 @@ export {
   deleteCategoryById,
   categoryExists,
   getProducts,
+  searchProducts,
   findProductById,
   createProduct,
   updateProductById,
@@ -51,6 +52,9 @@ export {
   createAnnouncement,
   updateAnnouncementById,
   deleteAnnouncementById,
+  getWishlistByUserId,
+  addWishlistItem,
+  removeWishlistItem,
 } from "../services/catalog.service.js";
 
 export {
@@ -63,6 +67,17 @@ export {
   removeCartItem,
   removeCartComboItem,
 } from "../services/cart.service.js";
+
+export {
+  findUserRowByPhone,
+  findUserRowByEmail,
+  findUserRowById,
+  insertUserVerified,
+  insertUserVerifiedByEmail,
+  markUserVerified,
+  upsertUserProfileById,
+  getUsersForAdmin,
+} from "../repositories/users.repository.js";
 
 export {
   findOrderById,

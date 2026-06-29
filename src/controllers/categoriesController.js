@@ -13,7 +13,7 @@ app.get("/api/categories", async (_req, res, next) => {
   }
 });
 
-app.post("/api/categories", async (req, res, next) => {
+app.post("/api/categories", requireAdminAccess, async (req, res, next) => {
   try {
     const validation = await validateCategoryPayload(req.body);
     if (validation.error) {
@@ -37,7 +37,7 @@ app.post("/api/categories", async (req, res, next) => {
   }
 });
 
-app.put("/api/categories/:id", async (req, res, next) => {
+app.put("/api/categories/:id", requireAdminAccess, async (req, res, next) => {
   try {
     const { id } = req.params;
     const category = await findCategoryById(id);
@@ -109,7 +109,7 @@ app.put("/api/categories/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/categories/:id", async (req, res, next) => {
+app.delete("/api/categories/:id", requireAdminAccess, async (req, res, next) => {
   try {
     const { id } = req.params;
     const category = await findCategoryById(id);

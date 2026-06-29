@@ -40,10 +40,6 @@ const storeMocks = vi.hoisted(() => ({
   deleteCategoryById: vi.fn(),
   categoryExists: vi.fn(),
   getProducts: vi.fn(),
-  searchProducts: vi.fn(),
-  getWishlistByUserId: vi.fn(),
-  addWishlistItem: vi.fn(),
-  removeWishlistItem: vi.fn(),
   findProductById: vi.fn(),
   createProduct: vi.fn(),
   updateProductById: vi.fn(),
@@ -361,10 +357,6 @@ beforeEach(() => {
   storeMocks.deleteCategoryById.mockResolvedValue(true);
   storeMocks.categoryExists.mockResolvedValue(true);
   storeMocks.getProducts.mockResolvedValue([]);
-  storeMocks.searchProducts.mockResolvedValue([baseProduct]);
-  storeMocks.getWishlistByUserId.mockResolvedValue([]);
-  storeMocks.addWishlistItem.mockResolvedValue({ id: "wli_1", userId: "usr_1", productId: baseProduct.id });
-  storeMocks.removeWishlistItem.mockResolvedValue(true);
   storeMocks.findProductById.mockResolvedValue(null);
   storeMocks.createProduct.mockResolvedValue(baseProduct);
   storeMocks.updateProductById.mockResolvedValue(baseProduct);
@@ -443,55 +435,46 @@ beforeEach(() => {
 });
 
 describe("backend api", () => {
-  it("fetches user wishlist when authenticated", async () => {
-    const session = await storeMocks.verifyOtpChallengeAndCreateSession();
-    const response = await request(app).get("/api/user/wishlist").set("Authorization", `Bearer ${session.token}`);
-    expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty("items");
-    expect(storeMocks.getWishlistByUserId).toHaveBeenCalledWith(session.user.id);
-  });
-
-  it("rejects fetching wishlist without auth", async () => {
-    const response = await request(app).get("/api/user/wishlist");
-    expect(response.status).toBe(401);
-  });
-
-  it("adds item to wishlist", async () => {
-    const session = await storeMocks.verifyOtpChallengeAndCreateSession();
-    const response = await request(app)
-      .post("/api/user/wishlist")
-      .set("Authorization", `Bearer ${session.token}`)
-      .send({ productId: "prod_1" });
-    expect(response.status).toBe(200);
-    expect(storeMocks.addWishlistItem).toHaveBeenCalledWith(session.user.id, "prod_1");
-  });
-
-  it("removes item from wishlist", async () => {
-    const session = await storeMocks.verifyOtpChallengeAndCreateSession();
-    const response = await request(app)
-      .delete("/api/user/wishlist/prod_1")
-      .set("Authorization", `Bearer ${session.token}`);
-    expect(response.status).toBe(200);
-    expect(storeMocks.removeWishlistItem).toHaveBeenCalledWith(session.user.id, "prod_1");
-  });
-
   it("returns health status", async () => {
     const response = await request(app).get("/api/health");
     expect(response.status).toBe(200);
     expect(response.body.status).toBe("ok");
   });
 
-  it("returns public lab reports", async () => {
-    const response = await request(app).get("/api/public/lab-reports");
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ reports: [] });
+  it("requires admin authentication for nav menu admin endpoints", async () => {
+    const response = await request(app).get("/api/admin/nav-menus");
+    expect(response.status).toBe(401);
+    expect(response.body.error?.code).toBe("ADMIN_AUTH_REQUIRED");
   });
 
-  it("searches public products", async () => {
-    const response = await request(app).get("/api/public/products/search?q=whey");
+  it("returns nav menus for admin", async () => {
+    const response = await request(app).get("/api/admin/nav-menus").set("x-admin-token", ADMIN_TEST_TOKEN);
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ products: [baseProduct] });
-    expect(storeMocks.searchProducts).toHaveBeenCalledWith("whey");
+    expect(response.body.menus).toHaveLength(1);
+    expect(storeMocks.getNavMenus).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes nav menu and returns published payload", async () => {
+    const response = await request(app).post("/api/admin/nav-menus/nvm_1/publish").set("x-admin-token", ADMIN_TEST_TOKEN);
+
+    expect(response.status).toBe(200);
+    expect(response.body.key).toBe("main_secondary");
+    expect(storeMocks.publishNavMenuById).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns public nav menu with ETag", async () => {
+    const response = await request(app).get("/api/public/nav-menus/main_secondary");
+    expect(response.status).toBe(200);
+    expect(response.headers.etag).toBeTruthy();
+    expect(response.body.key).toBe("main_secondary");
+  });
+
+  it("returns 304 for unchanged public nav menu ETag", async () => {
+    const first = await request(app).get("/api/public/nav-menus/main_secondary");
+    const second = await request(app).get("/api/public/nav-menus/main_secondary").set("if-none-match", first.headers.etag);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(304);
   });
 
   it("returns admin levels", async () => {
@@ -576,7 +559,6 @@ describe("backend api", () => {
 
     const response = await request(app)
       .post("/api/images")
-      .set("x-admin-token", ADMIN_TEST_TOKEN)
       .attach("image", Buffer.from("fake-image"), "sample.png");
 
     expect(response.status).toBe(503);
@@ -584,14 +566,52 @@ describe("backend api", () => {
   });
 
 
+  it("returns home content", async () => {
+    const response = await request(app).get("/api/home-content");
 
+    expect(response.status).toBe(200);
+    expect(response.body.customerCode).toBe("default");
+    expect(storeMocks.getHomeContent).toHaveBeenCalledWith("default");
+  });
 
+  it("updates home content", async () => {
+    const response = await request(app).put("/api/home-content").send({
+      customerCode: "default",
+      stats: [{ value: "24/7", label: "Support", iconKey: "zap" }],
+      features: [{ title: "Certified", description: "Lab tested", iconKey: "award" }],
+      benefits: [{ title: "Recovery", description: "Less soreness", iconKey: "biceps" }],
+      bundles: [
+        {
+          name: "Recovery Stack",
+          description: "Night formula",
+          items: ["Casein", "Magnesium"],
+          saveLabel: "Save 12%",
+          cta: "Get Bundle",
+        },
+      ],
+      reviews: [{ name: "Ari", goal: "Recovery", quote: "Good", rating: "4.8/5" }],
+      articles: [{ title: "Creatine 101", summary: "Guide", tag: "Creatine", readTime: "5 min" }],
+    });
+
+    expect(response.status).toBe(200);
+    expect(storeMocks.upsertHomeContent).toHaveBeenCalledTimes(1);
+    expect(response.body.stats[0].label).toBe("Support");
+  });
+
+  it("rejects invalid home content payload", async () => {
+    const response = await request(app).put("/api/home-content").send({
+      customerCode: "default",
+      stats: [{ value: "", label: "Support", iconKey: "zap" }],
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/invalid stats entry/i);
+  });
 
 
   it("uploads image and returns image metadata", async () => {
     const response = await request(app)
       .post("/api/images")
-      .set("x-admin-token", ADMIN_TEST_TOKEN)
       .attach("image", Buffer.from("fake-image"), "sample.png");
 
     expect(response.status).toBe(201);
@@ -610,7 +630,7 @@ describe("backend api", () => {
       imageKey: "products/new-image.png",
     });
 
-    const response = await request(app).put("/api/products/prod_1").set("x-admin-token", ADMIN_TEST_TOKEN).send({
+    const response = await request(app).put("/api/products/prod_1").send({
       name: "Whey",
       categoryId: "cat_1",
       price: 10,
@@ -628,7 +648,7 @@ describe("backend api", () => {
     storeMocks.findProductById.mockResolvedValue(baseProduct);
     storeMocks.deleteProductById.mockResolvedValue(true);
 
-    const response = await request(app).delete("/api/products/prod_1").set("x-admin-token", ADMIN_TEST_TOKEN);
+    const response = await request(app).delete("/api/products/prod_1");
 
     expect(response.status).toBe(204);
     expect(storeMocks.deleteProductById).toHaveBeenCalledWith("prod_1");
@@ -692,7 +712,7 @@ describe("backend api", () => {
   });
 
   it("creates carousel image entry", async () => {
-    const response = await request(app).post("/api/carousel-images").set("x-admin-token", ADMIN_TEST_TOKEN).send({
+    const response = await request(app).post("/api/carousel-images").send({
       title: "Hero 1",
       imageUrl: "https://cdn.example.com/carousel/new-image.png",
       imageKey: "carousel/new-image.png",
@@ -702,45 +722,6 @@ describe("backend api", () => {
 
     expect(response.status).toBe(201);
     expect(storeMocks.createCarouselImage).toHaveBeenCalledTimes(1);
-  });
-
-  // ─── Auth protection tests ─────────────────────────────────────
-
-  it("rejects POST /api/categories without admin auth", async () => {
-    const response = await request(app).post("/api/categories").send({ name: "Test" });
-    expect(response.status).toBe(401);
-  });
-
-  it("rejects POST /api/products without admin auth", async () => {
-    const response = await request(app).post("/api/products").send({ name: "Test" });
-    expect(response.status).toBe(401);
-  });
-
-  it("rejects PUT /api/products/:id without admin auth", async () => {
-    const response = await request(app).put("/api/products/prod_1").send({ name: "Test" });
-    expect(response.status).toBe(401);
-  });
-
-  it("rejects DELETE /api/products/:id without admin auth", async () => {
-    const response = await request(app).delete("/api/products/prod_1");
-    expect(response.status).toBe(401);
-  });
-
-  it("rejects POST /api/carousel-images without admin auth", async () => {
-    const response = await request(app).post("/api/carousel-images").send({ title: "Test" });
-    expect(response.status).toBe(401);
-  });
-
-  it("rejects POST /api/images without admin auth", async () => {
-    const response = await request(app)
-      .post("/api/images")
-      .attach("image", Buffer.from("fake-image"), "sample.png");
-    expect(response.status).toBe(401);
-  });
-
-  it("rejects DELETE /api/images without admin auth", async () => {
-    const response = await request(app).delete("/api/images?key=test-key");
-    expect(response.status).toBe(401);
   });
 
   it("creates cart session and returns cart", async () => {

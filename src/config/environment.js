@@ -104,6 +104,7 @@ export const ORDER_STATUSES = new Set([
   "failed",
   "confirmed",
   "processing",
+  "synced",
   "packed",
   "shipped",
   "delivered",

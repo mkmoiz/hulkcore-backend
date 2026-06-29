@@ -1,207 +1,148 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 
 export async function markOpenOtpChallengesConsumedByPhone(phone, now) {
-  await getPool().query(
-    `
-      UPDATE otp_challenges
-      SET consumed_at = ?, updated_at = ?
-      WHERE phone = ? AND consumed_at IS NULL
-    `,
-    [now, now, phone],
-  );
+  await getPrisma().otpChallenge.updateMany({
+    where: { phone, consumedAt: null },
+    data: { consumedAt: now, updatedAt: now },
+  });
 }
 
 export async function markOpenEmailOtpChallengesConsumedByEmail(email, now) {
-  await getPool().query(
-    `
-      UPDATE email_otp_challenges
-      SET consumed_at = ?, updated_at = ?
-      WHERE email = ? AND consumed_at IS NULL
-    `,
-    [now, now, email],
-  );
+  await getPrisma().emailOtpChallenge.updateMany({
+    where: { email, consumedAt: null },
+    data: { consumedAt: now, updatedAt: now },
+  });
 }
 
 export async function insertOtpChallenge(entry) {
-  await getPool().query(
-    `
-      INSERT INTO otp_challenges (
-        id,
-        phone,
-        otp_hash,
-        attempts_remaining,
-        expires_at,
-        consumed_at,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
-    `,
-    [entry.id, entry.phone, entry.otpHash, entry.attemptsRemaining, entry.expiresAt, entry.now, entry.now],
-  );
+  await getPrisma().otpChallenge.create({
+    data: {
+      id: entry.id,
+      phone: entry.phone,
+      otpHash: entry.otpHash,
+      attemptsRemaining: entry.attemptsRemaining,
+      expiresAt: entry.expiresAt,
+      consumedAt: null,
+      createdAt: entry.now,
+      updatedAt: entry.now,
+    },
+  });
 }
 
 export async function insertEmailOtpChallenge(entry) {
-  await getPool().query(
-    `
-      INSERT INTO email_otp_challenges (
-        id,
-        email,
-        otp_hash,
-        attempts_remaining,
-        expires_at,
-        consumed_at,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
-    `,
-    [entry.id, entry.email, entry.otpHash, entry.attemptsRemaining, entry.expiresAt, entry.now, entry.now],
-  );
+  await getPrisma().emailOtpChallenge.create({
+    data: {
+      id: entry.id,
+      email: entry.email,
+      otpHash: entry.otpHash,
+      attemptsRemaining: entry.attemptsRemaining,
+      expiresAt: entry.expiresAt,
+      consumedAt: null,
+      createdAt: entry.now,
+      updatedAt: entry.now,
+    },
+  });
 }
 
-export async function findOtpChallengeRowByIdAndPhone(challengeId, phone, connection = getPool(), forUpdate = false) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        phone,
-        otp_hash AS otpHash,
-        attempts_remaining AS attemptsRemaining,
-        expires_at AS expiresAt,
-        consumed_at AS consumedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM otp_challenges
-      WHERE id = ? AND phone = ?
-      LIMIT 1
-      ${forUpdate ? "FOR UPDATE" : ""}
-    `,
-    [challengeId, phone],
-  );
+export async function findOtpChallengeRowByIdAndPhone(challengeId, phone, prismaClient = getPrisma(), forUpdate = false) {
+  // Prisma does not support SELECT ... FOR UPDATE natively on findFirst,
+  // so for transactional locking we rely on the interactive transaction isolation
+  const row = await prismaClient.otpChallenge.findFirst({
+    where: { id: challengeId, phone },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
-export async function findEmailOtpChallengeRowByIdAndEmail(challengeId, email, connection = getPool(), forUpdate = false) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        email,
-        otp_hash AS otpHash,
-        attempts_remaining AS attemptsRemaining,
-        expires_at AS expiresAt,
-        consumed_at AS consumedAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM email_otp_challenges
-      WHERE id = ? AND email = ?
-      LIMIT 1
-      ${forUpdate ? "FOR UPDATE" : ""}
-    `,
-    [challengeId, email],
-  );
+export async function findEmailOtpChallengeRowByIdAndEmail(challengeId, email, prismaClient = getPrisma(), forUpdate = false) {
+  const row = await prismaClient.emailOtpChallenge.findFirst({
+    where: { id: challengeId, email },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
-export async function consumeOtpChallengeById(challengeId, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE otp_challenges
-      SET consumed_at = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [now, now, challengeId],
-  );
+export async function consumeOtpChallengeById(challengeId, now, prismaClient = getPrisma()) {
+  await prismaClient.otpChallenge.update({
+    where: { id: challengeId },
+    data: { consumedAt: now, updatedAt: now },
+  });
 }
 
-export async function consumeEmailOtpChallengeById(challengeId, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE email_otp_challenges
-      SET consumed_at = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [now, now, challengeId],
-  );
+export async function consumeEmailOtpChallengeById(challengeId, now, prismaClient = getPrisma()) {
+  await prismaClient.emailOtpChallenge.update({
+    where: { id: challengeId },
+    data: { consumedAt: now, updatedAt: now },
+  });
 }
 
-export async function updateOtpAttemptsById(challengeId, attemptsRemaining, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE otp_challenges
-      SET attempts_remaining = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [attemptsRemaining, now, challengeId],
-  );
+export async function updateOtpAttemptsById(challengeId, attemptsRemaining, now, prismaClient = getPrisma()) {
+  await prismaClient.otpChallenge.update({
+    where: { id: challengeId },
+    data: { attemptsRemaining, updatedAt: now },
+  });
 }
 
-export async function updateEmailOtpAttemptsById(challengeId, attemptsRemaining, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE email_otp_challenges
-      SET attempts_remaining = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [attemptsRemaining, now, challengeId],
-  );
+export async function updateEmailOtpAttemptsById(challengeId, attemptsRemaining, now, prismaClient = getPrisma()) {
+  await prismaClient.emailOtpChallenge.update({
+    where: { id: challengeId },
+    data: { attemptsRemaining, updatedAt: now },
+  });
 }
 
-export async function insertAuthSession(entry, connection = getPool()) {
-  await connection.query(
-    `
-      INSERT INTO auth_sessions (
-        token,
-        user_id,
-        expires_at,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?)
-    `,
-    [entry.token, entry.userId, entry.expiresAt, entry.now, entry.now],
-  );
+export async function insertAuthSession(entry, prismaClient = getPrisma()) {
+  await prismaClient.authSession.create({
+    data: {
+      token: entry.token,
+      userId: entry.userId,
+      expiresAt: entry.expiresAt,
+      createdAt: entry.now,
+      updatedAt: entry.now,
+    },
+  });
 }
 
-export async function findAuthSessionRowByToken(token, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        s.token,
-        s.user_id AS userId,
-        s.expires_at AS expiresAt,
-        s.created_at AS createdAt,
-        u.phone AS userPhone,
-        u.full_name AS userFullName,
-        u.email AS userEmail,
-        u.address_line1 AS userAddressLine1,
-        u.address_line2 AS userAddressLine2,
-        u.city AS userCity,
-        u.state AS userState,
-        u.postal_code AS userPostalCode,
-        u.country AS userCountry,
-        u.is_verified AS userIsVerified,
-        u.created_at AS userCreatedAt,
-        u.updated_at AS userUpdatedAt
-      FROM auth_sessions s
-      JOIN users u ON u.id = s.user_id
-      WHERE s.token = ?
-      LIMIT 1
-    `,
-    [token],
-  );
+export async function findAuthSessionRowByToken(token, prismaClient = getPrisma()) {
+  const row = await prismaClient.authSession.findUnique({
+    where: { token },
+    include: { user: true },
+  });
 
-  return rows[0] ?? null;
+  if (!row) {
+    return null;
+  }
+
+  // Map to the flat structure expected by mapAuthSession
+  return {
+    token: row.token,
+    userId: row.userId,
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+    userPhone: row.user?.phone || "",
+    userFullName: row.user?.fullName || "",
+    userEmail: row.user?.email || "",
+    userAddressLine1: row.user?.addressLine1 || "",
+    userAddressLine2: row.user?.addressLine2 || "",
+    userCity: row.user?.city || "",
+    userState: row.user?.state || "",
+    userPostalCode: row.user?.postalCode || "",
+    userCountry: row.user?.country || "",
+    userIsVerified: row.user?.isVerified,
+    userCreatedAt: row.user?.createdAt,
+    userUpdatedAt: row.user?.updatedAt,
+  };
 }
 
 export async function deleteAuthSessionByToken(token) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM auth_sessions
-      WHERE token = ?
-    `,
-    [token],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().authSession.delete({
+      where: { token },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }

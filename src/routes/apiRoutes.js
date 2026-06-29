@@ -14,6 +14,9 @@ import publicCatalogRoutes from "./publicCatalogRoutes.js";
 import adminReviewsRoutes from "./adminReviewsRoutes.js";
 import announcementsRoutes from "./announcementsRoutes.js";
 import publicReviewsRoutes from "./publicReviewsRoutes.js";
+import wishlistRoutes from "./wishlistRoutes.js";
+import adminUsersRoutes from "../controllers/adminUsersController.js";
+import webhookRoutes from "./webhookRoutes.js";
 
 const app = Router();
 
@@ -32,5 +35,8 @@ app.use(ordersAndCartRoutes);
 app.use(adminReviewsRoutes);
 app.use(announcementsRoutes);
 app.use(publicReviewsRoutes);
+app.use(wishlistRoutes);
+app.use(adminUsersRoutes);
+app.use(webhookRoutes);
 
 export default app;

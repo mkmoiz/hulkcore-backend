@@ -19,7 +19,15 @@ app.post("/api/admin/auth/login", async (req, res, next) => {
       return res.status(400).json({ message: "Email and password are required." });
     }
 
-    if (email !== ADMIN_LOGIN_EMAIL || password !== ADMIN_LOGIN_PASSWORD) {
+    if (email !== ADMIN_LOGIN_EMAIL) {
+      return res.status(401).json({ message: "Invalid admin credentials." });
+    }
+
+    const passwordValid = isScryptHash(ADMIN_LOGIN_PASSWORD)
+      ? await verifyPassword(password, ADMIN_LOGIN_PASSWORD)
+      : password === ADMIN_LOGIN_PASSWORD;
+
+    if (!passwordValid) {
       return res.status(401).json({ message: "Invalid admin credentials." });
     }
 

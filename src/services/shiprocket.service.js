@@ -391,6 +391,7 @@ export async function createShiprocketOrderForOrder(orderId, input = {}) {
   const fulfillment = extractShiprocketFulfillment(responsePayload);
 
   const updatedOrder = await updateOrderById(order.id, {
+    status: "synced",
     fulfillmentProvider: fulfillment.provider,
     fulfillmentOrderId: fulfillment.orderId,
     fulfillmentShipmentId: fulfillment.shipmentId,

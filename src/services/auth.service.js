@@ -1,5 +1,5 @@
 import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapAuthSession, mapUser } from "../mappers/auth.mapper.js";
 import { toIsoString } from "../utils/dates.js";
 import { createStoreError } from "../utils/errors.js";
@@ -105,7 +105,7 @@ export async function upsertUserProfile(userId, input) {
       country: country || null,
     });
   } catch (error) {
-    if (error?.code === "ER_DUP_ENTRY") {
+    if (error?.code === "P2002") {
       throw createStoreError("Email is already linked to another account.", "AUTH_PROFILE_EMAIL_IN_USE", 409);
     }
     throw error;
@@ -215,11 +215,8 @@ export async function verifyOtpChallengeAndCreateSession(input) {
     throw createStoreError("OTP hash is required.", "AUTH_OTP_HASH_REQUIRED", 400);
   }
 
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
-
-    const otpChallenge = await findOtpChallengeRowByIdAndPhone(challengeId, phone, connection, true);
+  return await getPrisma().$transaction(async (tx) => {
+    const otpChallenge = await findOtpChallengeRowByIdAndPhone(challengeId, phone, tx, true);
     if (!otpChallenge) {
       throw createStoreError("OTP challenge not found.", "AUTH_OTP_CHALLENGE_NOT_FOUND", 404);
     }
@@ -231,7 +228,7 @@ export async function verifyOtpChallengeAndCreateSession(input) {
     const now = new Date();
     const expiresAtMs = new Date(otpChallenge.expiresAt).getTime();
     if (!Number.isFinite(expiresAtMs) || expiresAtMs < now.getTime()) {
-      await consumeOtpChallengeById(challengeId, now, connection);
+      await consumeOtpChallengeById(challengeId, now, tx);
       throw createStoreError("OTP has expired. Please request a new one.", "AUTH_OTP_EXPIRED", 401);
     }
 
@@ -242,20 +239,20 @@ export async function verifyOtpChallengeAndCreateSession(input) {
 
     if (otpChallenge.otpHash !== otpHash) {
       const nextAttempts = Math.max(0, attemptsRemaining - 1);
-      await updateOtpAttemptsById(challengeId, nextAttempts, now, connection);
+      await updateOtpAttemptsById(challengeId, nextAttempts, now, tx);
       throw createStoreError("Invalid OTP.", "AUTH_OTP_INVALID", 401);
     }
 
-    await consumeOtpChallengeById(challengeId, now, connection);
+    await consumeOtpChallengeById(challengeId, now, tx);
 
-    let userRow = await findUserRowByPhone(phone, connection);
+    let userRow = await findUserRowByPhone(phone, tx);
     if (!userRow) {
       const userId = createId("usr");
-      await insertUserVerified(userId, phone, now, connection);
-      userRow = await findUserRowById(userId, connection);
+      await insertUserVerified(userId, phone, now, tx);
+      userRow = await findUserRowById(userId, tx);
     } else if (!Boolean(userRow.isVerified)) {
-      await markUserVerified(userRow.id, now, connection);
-      userRow = await findUserRowById(userRow.id, connection);
+      await markUserVerified(userRow.id, now, tx);
+      userRow = await findUserRowById(userRow.id, tx);
     }
 
     const token = createId("auth");
@@ -267,19 +264,12 @@ export async function verifyOtpChallengeAndCreateSession(input) {
         expiresAt: sessionExpiresAt,
         now,
       },
-      connection,
+      tx,
     );
 
-    await connection.commit();
-
-    const createdSession = await findAuthSessionRowByToken(token);
+    const createdSession = await findAuthSessionRowByToken(token, tx);
     return mapAuthSession(createdSession);
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+  });
 }
 
 export async function verifyEmailOtpChallengeAndCreateSession(input) {
@@ -301,11 +291,8 @@ export async function verifyEmailOtpChallengeAndCreateSession(input) {
     throw createStoreError("OTP hash is required.", "AUTH_OTP_HASH_REQUIRED", 400);
   }
 
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
-
-    const otpChallenge = await findEmailOtpChallengeRowByIdAndEmail(challengeId, email, connection, true);
+  return await getPrisma().$transaction(async (tx) => {
+    const otpChallenge = await findEmailOtpChallengeRowByIdAndEmail(challengeId, email, tx, true);
     if (!otpChallenge) {
       throw createStoreError("OTP challenge not found.", "AUTH_OTP_CHALLENGE_NOT_FOUND", 404);
     }
@@ -317,7 +304,7 @@ export async function verifyEmailOtpChallengeAndCreateSession(input) {
     const now = new Date();
     const expiresAtMs = new Date(otpChallenge.expiresAt).getTime();
     if (!Number.isFinite(expiresAtMs) || expiresAtMs < now.getTime()) {
-      await consumeEmailOtpChallengeById(challengeId, now, connection);
+      await consumeEmailOtpChallengeById(challengeId, now, tx);
       throw createStoreError("OTP has expired. Please request a new one.", "AUTH_OTP_EXPIRED", 401);
     }
 
@@ -328,20 +315,20 @@ export async function verifyEmailOtpChallengeAndCreateSession(input) {
 
     if (otpChallenge.otpHash !== otpHash) {
       const nextAttempts = Math.max(0, attemptsRemaining - 1);
-      await updateEmailOtpAttemptsById(challengeId, nextAttempts, now, connection);
+      await updateEmailOtpAttemptsById(challengeId, nextAttempts, now, tx);
       throw createStoreError("Invalid OTP.", "AUTH_OTP_INVALID", 401);
     }
 
-    await consumeEmailOtpChallengeById(challengeId, now, connection);
+    await consumeEmailOtpChallengeById(challengeId, now, tx);
 
-    let userRow = await findUserRowByEmail(email, connection);
+    let userRow = await findUserRowByEmail(email, tx);
     if (!userRow) {
       const userId = createId("usr");
-      await insertUserVerifiedByEmail(userId, email, now, connection);
-      userRow = await findUserRowById(userId, connection);
+      await insertUserVerifiedByEmail(userId, email, now, tx);
+      userRow = await findUserRowById(userId, tx);
     } else if (!Boolean(userRow.isVerified)) {
-      await markUserVerified(userRow.id, now, connection);
-      userRow = await findUserRowById(userRow.id, connection);
+      await markUserVerified(userRow.id, now, tx);
+      userRow = await findUserRowById(userRow.id, tx);
     }
 
     const token = createId("auth");
@@ -353,19 +340,12 @@ export async function verifyEmailOtpChallengeAndCreateSession(input) {
         expiresAt: sessionExpiresAt,
         now,
       },
-      connection,
+      tx,
     );
 
-    await connection.commit();
-
-    const createdSession = await findAuthSessionRowByToken(token);
+    const createdSession = await findAuthSessionRowByToken(token, tx);
     return mapAuthSession(createdSession);
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+  });
 }
 
 export async function findAuthSessionByToken(token) {
@@ -382,7 +362,7 @@ export async function findAuthSessionByToken(token) {
 
   const expiresAtMs = new Date(session.expiresAt).getTime();
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-    await deleteAuthSessionByToken(normalizedToken);
+    await deleteAuthSessionByTokenRow(normalizedToken);
     return null;
   }
 

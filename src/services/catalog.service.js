@@ -11,6 +11,7 @@ export {
 
 export {
   getProducts,
+  searchProducts,
   findProductById,
   createProduct,
   updateProductById,
@@ -40,6 +41,12 @@ export {
   deriveComboOfferStatus,
 } from "../repositories/combo-offers.repository.js";
 export { getBestSellerProducts, replaceBestSellerProducts } from "../repositories/best-sellers.repository.js";
+export {
+  getWishlistByUserId,
+  addWishlistItem,
+  removeWishlistItem,
+} from "../repositories/wishlist.repository.js";
+
 export {
   getLabReports,
   findLabReportById,

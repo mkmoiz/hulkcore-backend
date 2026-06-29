@@ -1,5 +1,5 @@
 import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { createStoreError } from "../utils/errors.js";
 import { normalizeCustomerRef, normalizeText } from "../utils/normalize.js";
 import {
@@ -14,6 +14,7 @@ import {
   findOrderByGatewayPaymentId,
   findOrderById,
   findProductForCheckout,
+  findProductsForCheckout,
   getOrdersByCustomerRef,
   getOrdersForAdmin,
   insertOrderComboItemRow,
@@ -94,36 +95,50 @@ export async function createOrderFromCart(input) {
     throw createStoreError("Customer name and email are required for checkout.", "CHECKOUT_CUSTOMER_REQUIRED", 400);
   }
 
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
+  const orderId = createId("ord");
 
-    const cartRow = await getOrCreateActiveCartRow(customerRef, connection);
+  await getPrisma().$transaction(async (tx) => {
+    const cartRow = await getOrCreateActiveCartRow(customerRef, tx);
     const [itemRows, comboItemRows] = await Promise.all([
-      findCartItemRowsByCartId(cartRow.id, connection),
-      findCartComboItemRowsByCartId(cartRow.id, connection),
+      findCartItemRowsByCartId(cartRow.id, tx),
+      findCartComboItemRowsByCartId(cartRow.id, tx),
     ]);
     if (itemRows.length === 0 && comboItemRows.length === 0) {
       throw createStoreError("Cart is empty.", "CHECKOUT_CART_EMPTY", 409);
     }
 
+    const allProductIds = new Set();
+    for (const row of itemRows) {
+      const normalizedProductId = normalizeText(row.productId);
+      if (normalizedProductId) {
+        allProductIds.add(normalizedProductId);
+      }
+    }
+    for (const row of comboItemRows) {
+      const comboProducts = parseComboProductsSnapshot(row.productsJson);
+      for (const comboProduct of comboProducts) {
+        const normalizedProductId = normalizeText(comboProduct.productId);
+        if (normalizedProductId) {
+          allProductIds.add(normalizedProductId);
+        }
+      }
+    }
+
+    const fetchedProducts = await findProductsForCheckout(Array.from(allProductIds), tx);
+    const lockedProductsById = new Map(fetchedProducts.map((p) => [p.id, p]));
+
     const preparedItems = [];
     const preparedComboItems = [];
     let subtotal = 0;
     const requiredStockByProductId = new Map();
-    const lockedProductsById = new Map();
 
-    async function getLockedProductOrThrow(productId, fallbackName) {
+    function getLockedProductOrThrow(productId, fallbackName) {
       const normalizedProductId = normalizeText(productId);
       if (!normalizedProductId) {
         throw createStoreError("Invalid product reference in cart.", "CHECKOUT_PRODUCT_UNAVAILABLE", 409);
       }
 
-      if (lockedProductsById.has(normalizedProductId)) {
-        return lockedProductsById.get(normalizedProductId);
-      }
-
-      const product = await findProductForCheckout(normalizedProductId, connection);
+      const product = lockedProductsById.get(normalizedProductId);
       if (!product || !Boolean(product.isActive)) {
         throw createStoreError(
           `Product is unavailable: ${fallbackName || normalizedProductId}`,
@@ -132,7 +147,6 @@ export async function createOrderFromCart(input) {
         );
       }
 
-      lockedProductsById.set(normalizedProductId, product);
       return product;
     }
 
@@ -142,7 +156,7 @@ export async function createOrderFromCart(input) {
     }
 
     for (const row of itemRows) {
-      const product = await getLockedProductOrThrow(row.productId, row.productName);
+      const product = getLockedProductOrThrow(row.productId, row.productName);
       const unitPrice = Number(product.price);
       const quantity = Number(row.quantity);
       const lineTotal = Number((unitPrice * quantity).toFixed(2));
@@ -174,7 +188,7 @@ export async function createOrderFromCart(input) {
       }
 
       for (const comboProduct of comboProducts) {
-        const lockedProduct = await getLockedProductOrThrow(comboProduct.productId, comboProduct.name);
+        const lockedProduct = getLockedProductOrThrow(comboProduct.productId, comboProduct.name);
         addRequiredStock(lockedProduct.id, quantity * Number(comboProduct.quantity ?? 1));
       }
 
@@ -208,7 +222,6 @@ export async function createOrderFromCart(input) {
     const normalizedSubtotal = Number(subtotal.toFixed(2));
     const total = Number((normalizedSubtotal + normalizedShippingFee).toFixed(2));
     const now = new Date();
-    const orderId = createId("ord");
 
     await insertOrderRow(
       {
@@ -240,66 +253,55 @@ export async function createOrderFromCart(input) {
         total,
         now,
       },
-      connection,
+      tx,
     );
 
-    for (const item of preparedItems) {
-      await insertOrderItemRow(
-        {
-          id: createId("orditem"),
-          orderId,
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          lineTotal: item.lineTotal,
-        },
-        now,
-        connection,
-      );
-    }
+    const orderItemEntries = preparedItems.map((item) => ({
+      id: createId("orditem"),
+      orderId,
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      lineTotal: item.lineTotal,
+    }));
+    await insertOrderItemRow(orderItemEntries, now, tx);
 
-    for (const comboItem of preparedComboItems) {
-      await insertOrderComboItemRow(
-        {
-          id: createId("ordcombo"),
-          orderId,
-          comboOfferId: comboItem.comboOfferId || "",
-          comboTitle: comboItem.comboTitle || "Combo Offer",
-          comboDescription: "",
-          bannerImageUrl: comboItem.bannerImageUrl,
-          productsJson: JSON.stringify(comboItem.products),
-          quantity: comboItem.quantity,
-          unitPrice: comboItem.unitPrice,
-          lineTotal: comboItem.lineTotal,
-        },
-        now,
-        connection,
-      );
-    }
+    const orderComboItemEntries = preparedComboItems.map((comboItem) => ({
+      id: createId("ordcombo"),
+      orderId,
+      comboOfferId: comboItem.comboOfferId || "",
+      comboTitle: comboItem.comboTitle || "Combo Offer",
+      comboDescription: "",
+      bannerImageUrl: comboItem.bannerImageUrl,
+      productsJson: JSON.stringify(comboItem.products),
+      quantity: comboItem.quantity,
+      unitPrice: comboItem.unitPrice,
+      lineTotal: comboItem.lineTotal,
+    }));
+    await insertOrderComboItemRow(orderComboItemEntries, now, tx);
 
     if (finalizeCart) {
+      const stockDecrementPromises = [];
       for (const [productId, requiredQuantity] of requiredStockByProductId.entries()) {
-        await decrementProductStock(productId, requiredQuantity, now, connection);
+        stockDecrementPromises.push(decrementProductStock(productId, requiredQuantity, now, tx));
       }
+      await Promise.all(stockDecrementPromises);
     }
 
     if (finalizeCart) {
-      await markCartCheckedOut(cartRow.id, now, connection);
+      await markCartCheckedOut(cartRow.id, now, tx);
     }
 
-    await connection.commit();
-
-    const createdOrder = await findOrderById(orderId);
-    if (!createdOrder) {
-      throw createStoreError("Order could not be loaded after checkout.", "CHECKOUT_ORDER_LOAD_FAILED", 500);
+    if (finalizeCart) {
+      await markCartCheckedOut(cartRow.id, now, tx);
     }
+  });
 
-    return createdOrder;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
+  const createdOrder = await findOrderById(orderId);
+  if (!createdOrder) {
+    throw createStoreError("Order could not be loaded after checkout.", "CHECKOUT_ORDER_LOAD_FAILED", 500);
   }
+
+  return createdOrder;
 }

@@ -1,85 +1,28 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapUser } from "../mappers/auth.mapper.js";
 
-export async function findUserRowByPhone(phone, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        phone,
-        full_name AS fullName,
-        email,
-        address_line1 AS addressLine1,
-        address_line2 AS addressLine2,
-        city,
-        state,
-        postal_code AS postalCode,
-        country,
-        is_verified AS isVerified,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM users
-      WHERE phone = ?
-      LIMIT 1
-    `,
-    [phone],
-  );
+export async function findUserRowByPhone(phone, prismaClient = getPrisma()) {
+  const row = await prismaClient.user.findFirst({
+    where: { phone },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
-export async function findUserRowByEmail(email, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        phone,
-        full_name AS fullName,
-        email,
-        address_line1 AS addressLine1,
-        address_line2 AS addressLine2,
-        city,
-        state,
-        postal_code AS postalCode,
-        country,
-        is_verified AS isVerified,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM users
-      WHERE email = ?
-      LIMIT 1
-    `,
-    [email],
-  );
+export async function findUserRowByEmail(email, prismaClient = getPrisma()) {
+  const row = await prismaClient.user.findFirst({
+    where: { email },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
-export async function findUserRowById(userId, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        phone,
-        full_name AS fullName,
-        email,
-        address_line1 AS addressLine1,
-        address_line2 AS addressLine2,
-        city,
-        state,
-        postal_code AS postalCode,
-        country,
-        is_verified AS isVerified,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM users
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [userId],
-  );
+export async function findUserRowById(userId, prismaClient = getPrisma()) {
+  const row = await prismaClient.user.findUnique({
+    where: { id: userId },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 export async function findUserByPhone(phone) {
@@ -87,84 +30,93 @@ export async function findUserByPhone(phone) {
   return mapUser(userRow);
 }
 
-export async function insertUserVerified(userId, phone, now, connection = getPool()) {
-  await connection.query(
-    `
-      INSERT INTO users (
-        id,
-        phone,
-        is_verified,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, 1, ?, ?)
-    `,
-    [userId, phone, now, now],
-  );
+export async function insertUserVerified(userId, phone, now, prismaClient = getPrisma()) {
+  await prismaClient.user.create({
+    data: {
+      id: userId,
+      phone,
+      isVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 }
 
-export async function insertUserVerifiedByEmail(userId, email, now, connection = getPool()) {
-  await connection.query(
-    `
-      INSERT INTO users (
-        id,
-        phone,
-        full_name,
-        email,
-        address_line1,
-        address_line2,
-        city,
-        state,
-        postal_code,
-        country,
-        is_verified,
-        created_at,
-        updated_at
-      ) VALUES (?, NULL, '', ?, NULL, NULL, NULL, NULL, NULL, NULL, 1, ?, ?)
-    `,
-    [userId, email, now, now],
-  );
+export async function insertUserVerifiedByEmail(userId, email, now, prismaClient = getPrisma()) {
+  await prismaClient.user.create({
+    data: {
+      id: userId,
+      phone: null,
+      fullName: "",
+      email,
+      addressLine1: null,
+      addressLine2: null,
+      city: null,
+      state: null,
+      postalCode: null,
+      country: null,
+      isVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 }
 
-export async function markUserVerified(userId, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE users
-      SET is_verified = 1, updated_at = ?
-      WHERE id = ?
-    `,
-    [now, userId],
-  );
+export async function markUserVerified(userId, now, prismaClient = getPrisma()) {
+  await prismaClient.user.update({
+    where: { id: userId },
+    data: { isVerified: true, updatedAt: now },
+  });
 }
 
-export async function upsertUserProfileById(userId, profile, now = new Date(), connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE users
-      SET
-        full_name = ?,
-        email = ?,
-        address_line1 = ?,
-        address_line2 = ?,
-        city = ?,
-        state = ?,
-        postal_code = ?,
-        country = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-    [
-      profile.fullName,
-      profile.email,
-      profile.addressLine1,
-      profile.addressLine2,
-      profile.city,
-      profile.state,
-      profile.postalCode,
-      profile.country,
-      now,
-      userId,
-    ],
-  );
+export async function upsertUserProfileById(userId, profile, now = new Date(), prismaClient = getPrisma()) {
+  await prismaClient.user.update({
+    where: { id: userId },
+    data: {
+      fullName: profile.fullName,
+      email: profile.email,
+      addressLine1: profile.addressLine1,
+      addressLine2: profile.addressLine2,
+      city: profile.city,
+      state: profile.state,
+      postalCode: profile.postalCode,
+      country: profile.country,
+      updatedAt: now,
+    },
+  });
 
-  return findUserRowById(userId, connection);
+  return findUserRowById(userId, prismaClient);
+}
+
+export async function getUsersForAdmin({ limit = 50, offset = 0, searchQuery = "" } = {}, prismaClient = getPrisma()) {
+  const where = {};
+  if (searchQuery) {
+    where.OR = [
+      { fullName: { contains: searchQuery } },
+      { email: { contains: searchQuery } },
+      { phone: { contains: searchQuery } },
+      { id: { contains: searchQuery } },
+    ];
+  }
+
+  const [users, total] = await Promise.all([
+    prismaClient.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      select: {
+        id: true,
+        phone: true,
+        fullName: true,
+        email: true,
+        isVerified: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prismaClient.user.count({ where }),
+  ]);
+
+  return { users, total };
 }

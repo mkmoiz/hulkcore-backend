@@ -4,7 +4,7 @@ import * as core from "./index.js";
 const app = Router();
 Object.assign(globalThis, core);
 
-app.post("/api/images", imageUploadMiddleware.single("image"), async (req, res, next) => {
+app.post("/api/images", requireAdminAccess, imageUploadMiddleware.single("image"), async (req, res, next) => {
   try {
     if (!isR2Configured()) {
       return res.status(503).json({ message: "Cloudflare R2 is not configured on the server." });
@@ -65,7 +65,7 @@ app.post(
   },
 );
 
-app.delete("/api/images", async (req, res, next) => {
+app.delete("/api/images", requireAdminAccess, async (req, res, next) => {
   try {
     const keyParam = Array.isArray(req.query?.key) ? req.query.key[0] : req.query?.key;
     const imageKey = cleanText(keyParam);

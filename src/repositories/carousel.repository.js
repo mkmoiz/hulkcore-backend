@@ -1,122 +1,78 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapCarouselImage } from "../mappers/product.mapper.js";
 
-export async function getCarouselImages() {
-  const [rows] = await getPool().query(`
-    SELECT
-      id,
-      title,
-      image_url AS imageUrl,
-      image_key AS imageKey,
-      linked_product_id AS linkedProductId,
-      sort_order AS sortOrder,
-      is_active AS isActive,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM carousel_images
-    ORDER BY sort_order ASC, created_at DESC
-  `);
+export async function getCarouselImages(includeHidden = true) {
+  const where = includeHidden ? {} : { isActive: true };
+  const rows = await getPrisma().carouselImage.findMany({
+    where,
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
 
   return rows.map(mapCarouselImage);
 }
 
 export async function findCarouselImageById(id) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        id,
-        title,
-        image_url AS imageUrl,
-        image_key AS imageKey,
-        linked_product_id AS linkedProductId,
-        sort_order AS sortOrder,
-        is_active AS isActive,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM carousel_images
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [id],
-  );
+  const row = await getPrisma().carouselImage.findUnique({
+    where: { id },
+  });
 
-  return mapCarouselImage(rows[0]);
+  return mapCarouselImage(row);
 }
 
 export async function createCarouselImage(input) {
   const now = new Date();
-  await getPool().query(
-    `
-      INSERT INTO carousel_images (
-        id,
-        title,
-        image_url,
-        image_key,
-        linked_product_id,
-        sort_order,
-        is_active,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      input.id,
-      input.title ?? "",
-      input.imageUrl ?? "",
-      input.imageKey ?? "",
-      input.linkedProductId ?? null,
-      input.sortOrder ?? 0,
-      input.isActive ? 1 : 0,
-      now,
-      now,
-    ],
-  );
+  await getPrisma().carouselImage.create({
+    data: {
+      id: input.id,
+      title: input.title ?? "",
+      imageUrl: input.imageUrl,
+      imageKey: input.imageKey ?? "",
+      linkedProductId: input.linkedProductId || null,
+      sortOrder: input.sortOrder ?? 0,
+      isActive: input.isActive ? true : false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 
   return findCarouselImageById(input.id);
 }
 
 export async function updateCarouselImageById(id, input) {
   const now = new Date();
-  const [result] = await getPool().query(
-    `
-      UPDATE carousel_images
-      SET
-        title = ?,
-        image_url = ?,
-        image_key = ?,
-        linked_product_id = ?,
-        sort_order = ?,
-        is_active = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-    [
-      input.title ?? "",
-      input.imageUrl ?? "",
-      input.imageKey ?? "",
-      input.linkedProductId ?? null,
-      input.sortOrder ?? 0,
-      input.isActive ? 1 : 0,
-      now,
-      id,
-    ],
-  );
-
-  if (result.affectedRows === 0) {
-    return null;
+  try {
+    await getPrisma().carouselImage.update({
+      where: { id },
+      data: {
+        title: input.title ?? "",
+        imageUrl: input.imageUrl,
+        imageKey: input.imageKey ?? "",
+        linkedProductId: input.linkedProductId || null,
+        sortOrder: input.sortOrder ?? 0,
+        isActive: input.isActive ? true : false,
+        updatedAt: now,
+      },
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
   }
 
   return findCarouselImageById(id);
 }
 
 export async function deleteCarouselImageById(id) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM carousel_images
-      WHERE id = ?
-    `,
-    [id],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().carouselImage.delete({
+      where: { id },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }

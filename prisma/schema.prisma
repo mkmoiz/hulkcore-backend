@@ -1,0 +1,641 @@
+// Prisma Schema for Hulkcore Backend
+// Maps to existing MySQL database — all table/column names preserved via @map/@@map
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Auth ────────────────────────────────────────────────
+
+model User {
+  id           String   @id @db.VarChar(64)
+  phone        String?  @unique(map: "uq_users_phone") @db.VarChar(64)
+  fullName     String   @default("") @map("full_name") @db.VarChar(191)
+  email        String?  @unique(map: "uq_users_email") @db.VarChar(191)
+  addressLine1 String?  @map("address_line1") @db.VarChar(191)
+  addressLine2 String?  @map("address_line2") @db.VarChar(191)
+  city         String?  @db.VarChar(128)
+  state        String?  @db.VarChar(128)
+  postalCode   String?  @map("postal_code") @db.VarChar(32)
+  country      String?  @db.VarChar(64)
+  isVerified   Boolean  @default(false) @map("is_verified") @db.TinyInt
+  createdAt    DateTime @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @map("updated_at") @db.DateTime(3)
+
+  authSessions   AuthSession[]
+  productReviews ProductReview[]
+  wishlistItems  WishlistItem[]
+
+  @@map("users")
+}
+
+model OtpChallenge {
+  id                String    @id @db.VarChar(64)
+  phone             String    @db.VarChar(24)
+  otpHash           String    @map("otp_hash") @db.Char(64)
+  attemptsRemaining Int       @default(5) @map("attempts_remaining") @db.UnsignedInt
+  expiresAt         DateTime  @map("expires_at") @db.DateTime(3)
+  consumedAt        DateTime? @map("consumed_at") @db.DateTime(3)
+  createdAt         DateTime  @map("created_at") @db.DateTime(3)
+  updatedAt         DateTime  @map("updated_at") @db.DateTime(3)
+
+  @@index([phone, createdAt], map: "idx_otp_phone_created")
+  @@index([expiresAt], map: "idx_otp_expires")
+  @@map("otp_challenges")
+}
+
+model EmailOtpChallenge {
+  id                String    @id @db.VarChar(64)
+  email             String    @db.VarChar(191)
+  otpHash           String    @map("otp_hash") @db.Char(64)
+  attemptsRemaining Int       @default(5) @map("attempts_remaining") @db.UnsignedInt
+  expiresAt         DateTime  @map("expires_at") @db.DateTime(3)
+  consumedAt        DateTime? @map("consumed_at") @db.DateTime(3)
+  createdAt         DateTime  @map("created_at") @db.DateTime(3)
+  updatedAt         DateTime  @map("updated_at") @db.DateTime(3)
+
+  @@index([email, createdAt], map: "idx_email_otp_email_created")
+  @@index([expiresAt], map: "idx_email_otp_expires")
+  @@map("email_otp_challenges")
+}
+
+model AuthSession {
+  token     String   @id @db.VarChar(128)
+  userId    String   @map("user_id") @db.VarChar(64)
+  expiresAt DateTime @map("expires_at") @db.DateTime(3)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_auth_sessions_user")
+
+  @@index([userId], map: "idx_auth_sessions_user")
+  @@index([expiresAt], map: "idx_auth_sessions_expires")
+  @@map("auth_sessions")
+}
+
+// ─── Email Suppressions (Bounce/Complaint Tracking) ─────────────
+
+model EmailSuppression {
+  id          String   @id @db.VarChar(64)
+  email       String   @unique(map: "uq_email_suppressions_email") @db.VarChar(191)
+  reason      String   @db.VarChar(32) // "hard_bounce", "complaint", "manual"
+  bounceType  String   @default("") @map("bounce_type") @db.VarChar(64)
+  diagnostics String?  @db.Text
+  source      String   @default("webhook") @db.VarChar(32) // "webhook", "manual", "api"
+  createdAt   DateTime @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime @map("updated_at") @db.DateTime(3)
+
+  @@index([reason, createdAt], map: "idx_email_suppressions_reason")
+  @@map("email_suppressions")
+}
+
+// ─── Catalog ─────────────────────────────────────────────────────
+
+model Category {
+  id          String   @id @db.VarChar(64)
+  name        String   @unique(map: "uq_categories_name") @db.VarChar(191)
+  slug        String   @db.VarChar(191)
+  description String   @db.Text
+  imageUrl    String   @map("image_url") @db.Text
+  imageKey    String   @default("") @map("image_key") @db.VarChar(512)
+  createdAt   DateTime @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime @map("updated_at") @db.DateTime(3)
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            String   @id @db.VarChar(64)
+  name          String   @db.VarChar(191)
+  description   String   @db.Text
+  imageUrl      String   @map("image_url") @db.Text
+  imageKey      String   @default("") @map("image_key") @db.VarChar(512)
+  sku           String   @default("") @db.VarChar(191)
+  badge         String   @default("") @db.VarChar(64)
+  subtitle      String   @default("") @db.VarChar(191)
+  categoryId    String   @map("category_id") @db.VarChar(64)
+  price         Decimal  @db.Decimal(10, 2)
+  originalPrice Decimal  @default(0) @map("original_price") @db.Decimal(10, 2)
+  offerPrice    Decimal  @default(0) @map("offer_price") @db.Decimal(10, 2)
+  ratingAvg     Decimal  @default(0.00) @map("rating_avg") @db.Decimal(3, 2)
+  reviewCount   Int      @default(0) @map("review_count") @db.UnsignedInt
+  stock         Int      @default(0) @db.UnsignedInt
+  isActive      Boolean  @default(true) @map("is_active") @db.TinyInt
+  createdAt     DateTime @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime @map("updated_at") @db.DateTime(3)
+
+  category          Category            @relation(fields: [categoryId], references: [id], onUpdate: Cascade, onDelete: Restrict, map: "fk_products_category")
+  images            ProductImage[]
+  reviews           ProductReview[]
+  cartItems         CartItem[]
+  orderItems        OrderItem[]
+  levelProducts     LevelProduct[]
+  offerProducts     OfferProduct[]
+  comboOfferProducts ComboOfferProduct[]
+  bestSellerProducts BestSellerProduct[]
+  homepageProducts  HomepageProduct[]
+  labReports        LabReport[]
+  wishlistItems     WishlistItem[]
+
+  @@index([categoryId], map: "idx_products_category_id")
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @db.VarChar(64)
+  productId String   @map("product_id") @db.VarChar(64)
+  imageUrl  String   @map("image_url") @db.Text
+  imageKey  String   @default("") @map("image_key") @db.VarChar(512)
+  sortOrder Int      @default(0) @map("sort_order") @db.UnsignedInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_product_images_product")
+
+  @@index([productId, sortOrder, createdAt], map: "idx_product_images_product_sort")
+  @@map("product_images")
+}
+
+model ProductReview {
+  id            String   @id @db.VarChar(64)
+  productId     String   @map("product_id") @db.VarChar(64)
+  userId        String   @map("user_id") @db.VarChar(64)
+  rating        Int      @db.TinyInt
+  headline      String?  @db.VarChar(191)
+  comment       String?  @db.Text
+  isApproved    Boolean  @default(false) @map("is_approved") @db.TinyInt
+  isHighlighted Boolean  @default(false) @map("is_highlighted") @db.TinyInt
+  createdAt     DateTime @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime @map("updated_at") @db.DateTime(3)
+
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_product_reviews_product")
+  user    User    @relation(fields: [userId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_product_reviews_user")
+
+  @@index([productId, isApproved, createdAt], map: "idx_product_reviews_product")
+  @@index([isHighlighted, createdAt], map: "idx_product_reviews_highlighted")
+  @@map("product_reviews")
+}
+
+model WishlistItem {
+  id        String   @id @db.VarChar(64)
+  userId    String   @map("user_id") @db.VarChar(64)
+  productId String   @map("product_id") @db.VarChar(64)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+
+  user    User    @relation(fields: [userId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_wishlist_items_user")
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_wishlist_items_product")
+
+  @@unique([userId, productId], map: "uq_wishlist_items_user_product")
+  @@index([userId, createdAt], map: "idx_wishlist_items_user")
+  @@map("wishlist_items")
+}
+
+// ─── Cart ────────────────────────────────────────────────────────
+
+model Cart {
+  id          String   @id @db.VarChar(64)
+  customerRef String   @map("customer_ref") @db.VarChar(128)
+  status      String   @default("active") @db.VarChar(32)
+  createdAt   DateTime @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime @map("updated_at") @db.DateTime(3)
+
+  items      CartItem[]
+  comboItems CartComboItem[]
+  orders     Order[]
+
+  @@index([customerRef, status, updatedAt], map: "idx_carts_customer_status")
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @db.VarChar(64)
+  cartId    String   @map("cart_id") @db.VarChar(64)
+  productId String   @map("product_id") @db.VarChar(64)
+  quantity  Int      @db.UnsignedInt
+  unitPrice Decimal  @map("unit_price") @db.Decimal(10, 2)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  cart    Cart    @relation(fields: [cartId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_cart_items_cart")
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Restrict, map: "fk_cart_items_product")
+
+  @@unique([cartId, productId], map: "uq_cart_items_cart_product")
+  @@index([cartId], map: "idx_cart_items_cart")
+  @@map("cart_items")
+}
+
+model CartComboItem {
+  id             String   @id @db.VarChar(64)
+  cartId         String   @map("cart_id") @db.VarChar(64)
+  comboOfferId   String   @map("combo_offer_id") @db.VarChar(64)
+  comboTitle     String   @map("combo_title") @db.VarChar(191)
+  bannerImageUrl String   @map("banner_image_url") @db.Text
+  productsJson   String   @map("products_json") @db.LongText
+  quantity       Int      @db.UnsignedInt
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(10, 2)
+  createdAt      DateTime @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime @map("updated_at") @db.DateTime(3)
+
+  cart Cart @relation(fields: [cartId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_cart_combo_items_cart")
+
+  @@unique([cartId, comboOfferId], map: "uq_cart_combo_items_pair")
+  @@index([cartId, createdAt], map: "idx_cart_combo_items_cart")
+  @@map("cart_combo_items")
+}
+
+// ─── Orders ──────────────────────────────────────────────────────
+
+model Order {
+  id                     String    @id @db.VarChar(64)
+  cartId                 String?   @map("cart_id") @db.VarChar(64)
+  customerRef            String    @map("customer_ref") @db.VarChar(128)
+  customerName           String    @map("customer_name") @db.VarChar(191)
+  customerEmail          String    @map("customer_email") @db.VarChar(191)
+  customerPhone          String    @default("") @map("customer_phone") @db.VarChar(64)
+  shippingAddressJson    String    @map("shipping_address_json") @db.LongText
+  paymentMethod          String    @default("cod") @map("payment_method") @db.VarChar(64)
+  paymentStatus          String    @default("pending") @map("payment_status") @db.VarChar(32)
+  paymentGateway         String    @default("") @map("payment_gateway") @db.VarChar(64)
+  gatewayOrderId         String    @default("") @map("gateway_order_id") @db.VarChar(128)
+  gatewayPaymentId       String    @default("") @map("gateway_payment_id") @db.VarChar(128)
+  gatewaySignature       String    @default("") @map("gateway_signature") @db.VarChar(512)
+  fulfillmentProvider    String    @default("") @map("fulfillment_provider") @db.VarChar(64)
+  fulfillmentOrderId     String    @default("") @map("fulfillment_order_id") @db.VarChar(128)
+  fulfillmentShipmentId  String    @default("") @map("fulfillment_shipment_id") @db.VarChar(128)
+  fulfillmentAwbCode     String    @default("") @map("fulfillment_awb_code") @db.VarChar(128)
+  fulfillmentCourierName String    @default("") @map("fulfillment_courier_name") @db.VarChar(191)
+  fulfillmentStatus      String    @default("") @map("fulfillment_status") @db.VarChar(64)
+  fulfillmentSyncedAt    DateTime? @map("fulfillment_synced_at") @db.DateTime(3)
+  fulfillmentPayloadJson String?   @map("fulfillment_payload_json") @db.LongText
+  currency               String    @default("INR") @db.Char(3)
+  status                 String    @default("placed") @db.VarChar(32)
+  subtotal               Decimal   @db.Decimal(10, 2)
+  shippingFee            Decimal   @default(0) @map("shipping_fee") @db.Decimal(10, 2)
+  total                  Decimal   @db.Decimal(10, 2)
+  placedAt               DateTime  @map("placed_at") @db.DateTime(3)
+  createdAt              DateTime  @map("created_at") @db.DateTime(3)
+  updatedAt              DateTime  @map("updated_at") @db.DateTime(3)
+
+  cart       Cart?            @relation(fields: [cartId], references: [id], onUpdate: Cascade, onDelete: SetNull, map: "fk_orders_cart")
+  items      OrderItem[]
+  comboItems OrderComboItem[]
+
+  @@index([customerRef], map: "idx_orders_customer_ref")
+  @@index([placedAt], map: "idx_orders_placed_at")
+  @@index([gatewayPaymentId], map: "idx_orders_gateway_payment_id")
+  @@index([gatewayOrderId], map: "idx_orders_gateway_order_id")
+  @@index([fulfillmentOrderId], map: "idx_orders_fulfillment_order_id")
+  @@index([fulfillmentShipmentId], map: "idx_orders_fulfillment_shipment_id")
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @db.VarChar(64)
+  orderId     String   @map("order_id") @db.VarChar(64)
+  productId   String   @map("product_id") @db.VarChar(64)
+  productName String   @map("product_name") @db.VarChar(191)
+  quantity    Int      @db.UnsignedInt
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(10, 2)
+  lineTotal   Decimal  @map("line_total") @db.Decimal(10, 2)
+  createdAt   DateTime @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime @map("updated_at") @db.DateTime(3)
+
+  order   Order   @relation(fields: [orderId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_order_items_order")
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Restrict, map: "fk_order_items_product")
+
+  @@index([orderId], map: "idx_order_items_order_id")
+  @@map("order_items")
+}
+
+model OrderComboItem {
+  id               String   @id @db.VarChar(64)
+  orderId          String   @map("order_id") @db.VarChar(64)
+  comboOfferId     String   @map("combo_offer_id") @db.VarChar(64)
+  comboTitle       String   @map("combo_title") @db.VarChar(191)
+  comboDescription String   @map("combo_description") @db.Text
+  bannerImageUrl   String   @map("banner_image_url") @db.Text
+  productsJson     String   @map("products_json") @db.LongText
+  quantity         Int      @db.UnsignedInt
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(10, 2)
+  lineTotal        Decimal  @map("line_total") @db.Decimal(10, 2)
+  createdAt        DateTime @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime @map("updated_at") @db.DateTime(3)
+
+  order Order @relation(fields: [orderId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_order_combo_items_order")
+
+  @@index([orderId], map: "idx_order_combo_items_order_id")
+  @@map("order_combo_items")
+}
+
+// ─── Carousel ────────────────────────────────────────────────────
+
+model CarouselImage {
+  id              String   @id @db.VarChar(64)
+  title           String   @default("") @db.VarChar(191)
+  imageUrl        String   @map("image_url") @db.Text
+  imageKey        String   @default("") @map("image_key") @db.VarChar(512)
+  linkedProductId String?  @map("linked_product_id") @db.VarChar(191)
+  sortOrder       Int      @default(0) @map("sort_order") @db.UnsignedInt
+  isActive        Boolean  @default(true) @map("is_active") @db.TinyInt
+  createdAt       DateTime @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @map("updated_at") @db.DateTime(3)
+
+  @@index([sortOrder, createdAt], map: "idx_carousel_sort")
+  @@map("carousel_images")
+}
+
+// ─── Home Content ────────────────────────────────────────────────
+
+model HomeContent {
+  customerCode String   @id @map("customer_code") @db.VarChar(64)
+  payload      String   @db.LongText
+  updatedAt    DateTime @map("updated_at") @db.DateTime(3)
+
+  @@map("home_content")
+}
+
+// ─── Levels (Collections) ────────────────────────────────────────
+
+model Level {
+  id                    String   @id @db.VarChar(64)
+  slug                  String   @unique(map: "uq_levels_slug") @db.VarChar(191)
+  name                  String   @unique(map: "uq_levels_name") @db.VarChar(191)
+  description           String   @db.Text
+  imageUrl              String   @map("image_url") @db.Text
+  imageKey              String   @default("") @map("image_key") @db.VarChar(512)
+  position              Int      @default(0) @db.UnsignedInt
+  isActive              Boolean  @default(true) @map("is_active") @db.TinyInt
+  ruleMode              String   @default("CURATED") @map("rule_mode") @db.VarChar(16)
+  sortMode              String   @default("featured") @map("sort_mode") @db.VarChar(32)
+  includeCategoryIdsJson String  @map("include_category_ids_json") @db.LongText
+  createdAt             DateTime @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime @map("updated_at") @db.DateTime(3)
+
+  levelProducts LevelProduct[]
+
+  @@index([position, createdAt], map: "idx_levels_position")
+  @@map("levels")
+}
+
+model LevelProduct {
+  id        String   @id @db.VarChar(64)
+  levelId   String   @map("level_id") @db.VarChar(64)
+  productId String   @map("product_id") @db.VarChar(64)
+  position  Int      @default(0) @db.UnsignedInt
+  isPinned  Boolean  @default(false) @map("is_pinned") @db.TinyInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  level   Level   @relation(fields: [levelId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_level_products_level")
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_level_products_product")
+
+  @@unique([levelId, productId], map: "uq_level_products_pair")
+  @@index([levelId, position, createdAt], map: "idx_level_products_level")
+  @@map("level_products")
+}
+
+// ─── Offers ──────────────────────────────────────────────────────
+
+model OfferProduct {
+  id        String   @id @db.VarChar(64)
+  productId String   @unique(map: "uq_offer_products_product") @map("product_id") @db.VarChar(64)
+  badge     String   @default("") @db.VarChar(64)
+  subtitle  String   @default("") @db.VarChar(191)
+  position  Int      @default(0) @db.UnsignedInt
+  isActive  Boolean  @default(true) @map("is_active") @db.TinyInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_offer_products_product")
+
+  @@index([position, createdAt], map: "idx_offer_products_position")
+  @@map("offer_products")
+}
+
+// ─── Combo Offers ────────────────────────────────────────────────
+
+model ComboOffer {
+  id             String    @id @db.VarChar(64)
+  title          String    @db.VarChar(191)
+  bannerImageUrl String    @map("banner_image_url") @db.Text
+  bannerImageKey String    @default("") @map("banner_image_key") @db.VarChar(512)
+  description    String    @db.Text
+  offerPrice     Decimal   @map("offer_price") @db.Decimal(10, 2)
+  position       Int       @default(0) @db.UnsignedInt
+  isActive       Boolean   @default(false) @map("is_active") @db.TinyInt
+  startAt        DateTime? @map("start_at") @db.DateTime(3)
+  endAt          DateTime? @map("end_at") @db.DateTime(3)
+  createdAt      DateTime  @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @map("updated_at") @db.DateTime(3)
+
+  products ComboOfferProduct[]
+
+  @@index([position, createdAt], map: "idx_combo_offers_position")
+  @@index([isActive, startAt, endAt], map: "idx_combo_offers_schedule")
+  @@map("combo_offers")
+}
+
+model ComboOfferProduct {
+  id           String   @id @db.VarChar(64)
+  comboOfferId String   @map("combo_offer_id") @db.VarChar(64)
+  productId    String   @map("product_id") @db.VarChar(64)
+  position     Int      @default(0) @db.UnsignedInt
+  createdAt    DateTime @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @map("updated_at") @db.DateTime(3)
+
+  comboOffer ComboOffer @relation(fields: [comboOfferId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_combo_offer_products_offer")
+  product    Product    @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_combo_offer_products_product")
+
+  @@unique([comboOfferId, productId], map: "uq_combo_offer_products_pair")
+  @@index([comboOfferId, position, createdAt], map: "idx_combo_offer_products_combo")
+  @@map("combo_offer_products")
+}
+
+// ─── Best Sellers ────────────────────────────────────────────────
+
+model BestSellerProduct {
+  id        String   @id @db.VarChar(64)
+  productId String   @unique(map: "uq_best_seller_products_product") @map("product_id") @db.VarChar(64)
+  position  Int      @default(0) @db.UnsignedInt
+  isActive  Boolean  @default(true) @map("is_active") @db.TinyInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  product Product @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_best_seller_products_product")
+
+  @@index([position, createdAt], map: "idx_best_seller_products_position")
+  @@map("best_seller_products")
+}
+
+// ─── Homepage Products ───────────────────────────────────────────
+
+model HomepageProductSection {
+  id               String            @id @db.VarChar(64)
+  name             String            @db.VarChar(191)
+  heading          String            @db.VarChar(191)
+  position         Int               @default(0) @db.UnsignedInt
+  isActive         Boolean           @default(true) @map("is_active") @db.TinyInt
+  updatedAt        DateTime          @map("updated_at") @db.DateTime(3)
+  homepageProducts HomepageProduct[]
+
+  @@index([position, updatedAt], map: "idx_homepage_sections_position")
+  @@map("homepage_product_section")
+}
+
+model HomepageProduct {
+  id        String   @id @db.VarChar(64)
+  sectionId String   @map("section_id") @db.VarChar(64)
+  productId String   @map("product_id") @db.VarChar(64)
+  position  Int      @default(0) @db.UnsignedInt
+  isActive  Boolean  @default(true) @map("is_active") @db.TinyInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  section HomepageProductSection @relation(fields: [sectionId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_homepage_products_section")
+  product Product                @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_homepage_products_product")
+
+  @@unique([sectionId, productId], map: "uq_homepage_products_pair")
+  @@index([sectionId, position, createdAt], map: "idx_homepage_products_section")
+  @@map("homepage_products")
+}
+
+// ─── Lab Reports ─────────────────────────────────────────────────
+
+model LabReport {
+  id          String   @id @db.VarChar(64)
+  title       String   @db.VarChar(191)
+  description String   @db.Text
+  reportUrl   String   @map("report_url") @db.Text
+  reportKey   String   @default("") @map("report_key") @db.VarChar(512)
+  productId   String?  @map("product_id") @db.VarChar(64)
+  isActive    Boolean  @default(true) @map("is_active") @db.TinyInt
+  position    Int      @default(0) @db.UnsignedInt
+  createdAt   DateTime @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime @map("updated_at") @db.DateTime(3)
+
+  product Product? @relation(fields: [productId], references: [id], onUpdate: Cascade, onDelete: SetNull, map: "fk_lab_reports_product")
+
+  @@index([position, createdAt], map: "idx_lab_reports_position")
+  @@map("lab_reports")
+}
+
+// ─── Navigation ──────────────────────────────────────────────────
+
+model NavMenu {
+  id               String    @id @db.VarChar(64)
+  menuKey          String    @unique(map: "uq_nav_menus_key") @map("menu_key") @db.VarChar(64)
+  name             String    @db.VarChar(191)
+  isActive         Boolean   @default(true) @map("is_active") @db.TinyInt
+  version          Int       @default(0) @db.UnsignedInt
+  publishedPayload String?   @map("published_payload") @db.LongText
+  publishedAt      DateTime? @map("published_at") @db.DateTime(3)
+  createdAt        DateTime  @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime  @map("updated_at") @db.DateTime(3)
+
+  items NavItem[]
+
+  @@index([isActive, updatedAt], map: "idx_nav_menus_active")
+  @@map("nav_menus")
+}
+
+model NavItem {
+  id        String   @id @db.VarChar(64)
+  menuId    String   @map("menu_id") @db.VarChar(64)
+  label     String   @db.VarChar(191)
+  itemType  String   @map("item_type") @db.VarChar(16)
+  href      String?  @db.Text
+  target    String   @default("_self") @db.VarChar(16)
+  position  Int      @default(0) @db.UnsignedInt
+  isVisible Boolean  @default(true) @map("is_visible") @db.TinyInt
+  icon      String   @default("") @db.VarChar(191)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  menu            NavMenu            @relation(fields: [menuId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_nav_items_menu")
+  dropdownGroups  NavDropdownGroup[]
+  promoTiles      NavPromoTile[]
+
+  @@index([menuId, position, createdAt], map: "idx_nav_items_menu_position")
+  @@map("nav_items")
+}
+
+model NavDropdownGroup {
+  id        String   @id @db.VarChar(64)
+  navItemId String   @map("nav_item_id") @db.VarChar(64)
+  title     String   @default("") @db.VarChar(191)
+  position  Int      @default(0) @db.UnsignedInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  navItem NavItem            @relation(fields: [navItemId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_nav_groups_item")
+  links   NavDropdownLink[]
+
+  @@index([navItemId, position, createdAt], map: "idx_nav_groups_item_position")
+  @@map("nav_dropdown_groups")
+}
+
+model NavDropdownLink {
+  id          String   @id @db.VarChar(64)
+  groupId     String   @map("group_id") @db.VarChar(64)
+  label       String   @db.VarChar(191)
+  href        String   @db.Text
+  position    Int      @default(0) @db.UnsignedInt
+  badge       String   @default("") @db.VarChar(64)
+  trackingTag String   @default("") @map("tracking_tag") @db.VarChar(128)
+  createdAt   DateTime @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime @map("updated_at") @db.DateTime(3)
+
+  group NavDropdownGroup @relation(fields: [groupId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_nav_links_group")
+
+  @@index([groupId, position, createdAt], map: "idx_nav_links_group_position")
+  @@map("nav_dropdown_links")
+}
+
+model NavPromoTile {
+  id        String   @id @db.VarChar(64)
+  navItemId String   @map("nav_item_id") @db.VarChar(64)
+  imageUrl  String   @map("image_url") @db.Text
+  title     String   @default("") @db.VarChar(191)
+  subtitle  String   @default("") @db.VarChar(191)
+  href      String   @db.Text
+  position  Int      @default(0) @db.UnsignedInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  navItem NavItem @relation(fields: [navItemId], references: [id], onUpdate: Cascade, onDelete: Cascade, map: "fk_nav_tiles_item")
+
+  @@index([navItemId, position, createdAt], map: "idx_nav_tiles_item_position")
+  @@map("nav_promo_tiles")
+}
+
+// ─── Announcements ───────────────────────────────────────────────
+
+model AnnouncementItem {
+  id        String   @id @db.VarChar(64)
+  text      String   @db.VarChar(500)
+  href      String   @default("") @db.VarChar(500)
+  sortOrder Int      @default(0) @map("sort_order") @db.UnsignedInt
+  isActive  Boolean  @default(true) @map("is_active") @db.TinyInt
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+
+  @@index([sortOrder, createdAt], map: "idx_announcement_items_order")
+  @@map("announcement_items")
+}
+
+// ─── Theme Settings ──────────────────────────────────────────────
+
+model ThemeSetting {
+  customerCode String   @id @map("customer_code") @db.VarChar(64)
+  payload      String   @db.LongText
+  updatedAt    DateTime @map("updated_at") @db.DateTime(3)
+
+  @@map("theme_settings")
+}

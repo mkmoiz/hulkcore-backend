@@ -1,5 +1,7 @@
-import { createHash, randomInt } from "node:crypto";
-import nodemailer from "nodemailer";
+import { createHash, randomBytes, randomInt, scrypt, timingSafeEqual } from "node:crypto";
+import { sendMail } from "../services/mailService.js";
+import { buildOtpEmailHtml, buildOtpEmailText } from "../services/emailTemplates.js";
+import { isEmailSuppressed } from "../repositories/email-suppressions.repository.js";
 import {
   ADMIN_API_TOKEN,
   ADMIN_AUTH_COOKIE_NAME,
@@ -18,6 +20,49 @@ import { createErrorBody, createHttpError } from "../errors/index.js";
 import { deleteCacheKey, getCacheJson, setCacheJson } from "../redisCache.js";
 import { findAuthSessionByToken } from "../store.js";
 import { cleanText } from "../utils.js";
+
+// ─── Admin Password Hashing (scrypt) ─────────────────────────────
+
+const SCRYPT_KEY_LENGTH = 64;
+const SCRYPT_HASH_PATTERN = /^[a-f0-9]{32}:[a-f0-9]{128}$/;
+
+/**
+ * Hash a plaintext password using scrypt.
+ * Returns a string in the format "salt:hash" (hex-encoded).
+ */
+export function hashPassword(password) {
+  return new Promise((resolve, reject) => {
+    const salt = randomBytes(16).toString("hex");
+    scrypt(password, salt, SCRYPT_KEY_LENGTH, (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve(`${salt}:${derivedKey.toString("hex")}`);
+    });
+  });
+}
+
+/**
+ * Verify a plaintext password against a stored "salt:hash" string.
+ * Uses timingSafeEqual for constant-time comparison.
+ */
+export function verifyPassword(password, storedHash) {
+  return new Promise((resolve, reject) => {
+    const [salt, hash] = storedHash.split(":");
+    if (!salt || !hash) return resolve(false);
+    scrypt(password, salt, SCRYPT_KEY_LENGTH, (err, derivedKey) => {
+      if (err) return reject(err);
+      const storedBuffer = Buffer.from(hash, "hex");
+      if (storedBuffer.length !== derivedKey.length) return resolve(false);
+      resolve(timingSafeEqual(storedBuffer, derivedKey));
+    });
+  });
+}
+
+/**
+ * Check if a string looks like a scrypt hash (salt:hash format).
+ */
+export function isScryptHash(value) {
+  return SCRYPT_HASH_PATTERN.test(cleanText(value));
+}
 
 export const ADMIN_SESSION_MEMORY_CACHE = new Map();
 
@@ -311,44 +356,27 @@ export async function sendOtpWithMsg91(phoneNumber, otpCode) {
 }
 
 export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
-  const smtpHost = cleanText(process.env.ZEPTOMAIL_SMTP_HOST) || "smtp.zeptomail.in";
-  const smtpPort = Number(process.env.ZEPTOMAIL_SMTP_PORT) || 587;
-  const smtpPassword = cleanText(process.env.ZEPTOMAIL_SEND_MAIL_TOKEN);
-  const fromAddress = cleanText(process.env.ZEPTOMAIL_FROM_ADDRESS);
-  const fromName = cleanText(process.env.ZEPTOMAIL_FROM_NAME) || "Hulk Core";
-
-  if (!smtpPassword || !fromAddress) {
-    throw createHttpError(500, "ZeptoMail SMTP credentials are not configured (ZEPTOMAIL_SEND_MAIL_TOKEN, ZEPTOMAIL_FROM_ADDRESS).");
-  }
-
   const normalizedEmail = cleanText(emailAddress).toLowerCase();
   if (!normalizedEmail) {
     throw createHttpError(400, "Valid email is required for ZeptoMail delivery.");
   }
 
-  const transport = nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpPort === 465,
-    auth: {
-      user: "emailapikey",
-      pass: smtpPassword,
-    },
-  });
-
-  const mailOptions = {
-    from: {
-      address: fromAddress,
-      name: fromName,
-    },
-    to: [normalizedEmail],
-    subject: "Your Hulk Core login OTP",
-    html: `<div style="font-family:'Arial',sans-serif;background-color:#08080c;color:#ffffff;padding:40px 20px;text-align:center;border-top:4px solid #39FF14;border-bottom:4px solid #39FF14;"><h1 style="color:#ffffff;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;font-weight:900;">HULK<span style="color:#39FF14;">CORE</span></h1><div style="background-color:#121217;border:1px solid #2a2a35;padding:30px;border-radius:12px;max-width:400px;margin:20px auto;box-shadow:0 0 20px rgba(57,255,20,0.15);"><p style="font-size:16px;color:#a1a1aa;margin-top:0;">Your secure verification code is:</p><div style="font-size:36px;font-weight:900;color:#39FF14;letter-spacing:6px;margin:20px 0;">${otpCode}</div><p style="font-size:13px;color:#71717a;margin-bottom:0;line-height:1.5;">This code will expire shortly.<br>Do not share this with anyone.</p></div><p style="font-size:11px;color:#52525b;margin-top:30px;">© Hulk Core Supplements. All rights reserved.</p></div>`,
-  };
+  // Check if email is suppressed due to previous bounce/complaint
+  const suppressed = await isEmailSuppressed(normalizedEmail);
+  if (suppressed) {
+    console.warn(`[mail] OTP send blocked — email="${normalizedEmail}" is suppressed (bounced/complained)`);
+    throw createHttpError(422, "We couldn't deliver to this email address. It may be invalid or has previously bounced. Please try a different email.");
+  }
 
   try {
-    await transport.sendMail(mailOptions);
-    return { provider: "zeptomail", sent: true };
+    const result = await sendMail({
+      to: normalizedEmail,
+      subject: "Your Hulk Core login OTP",
+      html: buildOtpEmailHtml(otpCode),
+      text: buildOtpEmailText(otpCode),
+    });
+
+    return { provider: result.provider, sent: true };
   } catch (error) {
     throw createHttpError(502, "Failed to deliver OTP email via ZeptoMail SMTP: " + error.message);
   }

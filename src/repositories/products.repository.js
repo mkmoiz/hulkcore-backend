@@ -1,5 +1,5 @@
 import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapProduct } from "../mappers/product.mapper.js";
 import { normalizeText, normalizeProductImageList } from "../utils/normalize.js";
 import {
@@ -8,61 +8,88 @@ import {
   replaceProductImagesByProductId,
 } from "./product-images.repository.js";
 
-function productSelectSql(whereClause = "") {
-  return `
-    SELECT
-      p.id,
-      p.name,
-      p.description,
-      p.image_url AS imageUrl,
-      p.image_key AS imageKey,
-      p.sku,
-      p.badge,
-      p.subtitle,
-      p.category_id AS categoryId,
-      p.price,
-      p.original_price AS originalPrice,
-      p.offer_price AS offerPrice,
-      p.rating_avg AS ratingAvg,
-      p.review_count AS reviewCount,
-      p.stock,
-      p.is_active AS isActive,
-      p.created_at AS createdAt,
-      p.updated_at AS updatedAt,
-      c.id AS categoryIdRef,
-      c.name AS categoryName,
-      c.slug AS categorySlug
-    FROM products p
-    LEFT JOIN categories c ON c.id = p.category_id
-    ${whereClause}
-  `;
-}
-
 export async function getProducts(categoryId) {
-  const sql = categoryId
-    ? `${productSelectSql("WHERE p.category_id = ?")} ORDER BY p.created_at DESC`
-    : `${productSelectSql()} ORDER BY p.created_at DESC`;
-  const params = categoryId ? [categoryId] : [];
-  const [rows] = await getPool().query(sql, params);
+  const where = categoryId ? { categoryId } : {};
+  const rows = await getPrisma().product.findMany({
+    where,
+    include: { category: true },
+    orderBy: { createdAt: "desc" },
+  });
+
   const productIds = rows.map((row) => row.id);
   const imageRows = await findProductImageRowsByProductIds(productIds);
   const imagesByProductId = groupProductImageRowsByProductId(imageRows);
-  return rows.map((row) => mapProduct(row, imagesByProductId[row.id] ?? []));
+
+  return rows.map((row) =>
+    mapProduct(
+      {
+        ...row,
+        categoryIdRef: row.category?.id ?? null,
+        categoryName: row.category?.name ?? null,
+        categorySlug: row.category?.slug ?? null,
+      },
+      imagesByProductId[row.id] ?? [],
+    ),
+  );
+}
+
+export async function searchProducts(query) {
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const rows = await getPrisma().product.findMany({
+    where: {
+      OR: [
+        { name: { contains: normalizedQuery } },
+        { sku: { contains: normalizedQuery } },
+        { subtitle: { contains: normalizedQuery } },
+        { category: { name: { contains: normalizedQuery } } },
+      ],
+      isActive: true,
+    },
+    include: { category: true },
+    take: 20,
+  });
+
+  const productIds = rows.map((row) => row.id);
+  const imageRows = await findProductImageRowsByProductIds(productIds);
+  const imagesByProductId = groupProductImageRowsByProductId(imageRows);
+
+  return rows.map((row) =>
+    mapProduct(
+      {
+        ...row,
+        categoryIdRef: row.category?.id ?? null,
+        categoryName: row.category?.name ?? null,
+        categorySlug: row.category?.slug ?? null,
+      },
+      imagesByProductId[row.id] ?? [],
+    ),
+  );
 }
 
 export async function findProductById(id) {
-  const [rows] = await getPool().query(
-    `${productSelectSql("WHERE p.id = ?")} LIMIT 1`,
-    [id],
-  );
+  const row = await getPrisma().product.findUnique({
+    where: { id },
+    include: { category: true },
+  });
 
-  const productRow = rows[0];
-  if (!productRow) {
+  if (!row) {
     return null;
   }
 
   const imageRows = await findProductImageRowsByProductIds([id]);
-  return mapProduct(productRow, imageRows);
+  return mapProduct(
+    {
+      ...row,
+      categoryIdRef: row.category?.id ?? null,
+      categoryName: row.category?.name ?? null,
+      categorySlug: row.category?.slug ?? null,
+    },
+    imageRows,
+  );
 }
 
 export async function createProduct(input) {
@@ -76,46 +103,27 @@ export async function createProduct(input) {
   const originalPriceRaw = Number(input?.originalPrice ?? offerPrice);
   const originalPrice = Number.isFinite(originalPriceRaw) && originalPriceRaw >= offerPrice ? originalPriceRaw : offerPrice;
   const now = new Date();
-  await getPool().query(
-    `
-      INSERT INTO products (
-        id,
-        name,
-        description,
-        image_url,
-        image_key,
-        sku,
-        badge,
-        subtitle,
-        category_id,
-        price,
-        original_price,
-        offer_price,
-        stock,
-        is_active,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      input.id,
-      input.name,
-      input.description,
-      primaryImage.imageUrl ?? "",
-      primaryImage.imageKey ?? "",
-      input.sku,
-      input.badge ?? "",
-      input.subtitle ?? "",
-      input.categoryId,
-      offerPrice,
+
+  await getPrisma().product.create({
+    data: {
+      id: input.id,
+      name: input.name,
+      description: input.description,
+      imageUrl: primaryImage.imageUrl ?? "",
+      imageKey: primaryImage.imageKey ?? "",
+      sku: input.sku,
+      badge: input.badge ?? "",
+      subtitle: input.subtitle ?? "",
+      categoryId: input.categoryId,
+      price: offerPrice,
       originalPrice,
       offerPrice,
-      input.stock,
-      input.isActive ? 1 : 0,
-      now,
-      now,
-    ],
-  );
+      stock: input.stock,
+      isActive: input.isActive ? true : false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 
   await replaceProductImagesByProductId(input.id, normalizedImages);
   return findProductById(input.id);
@@ -132,47 +140,32 @@ export async function updateProductById(id, input) {
   const originalPriceRaw = Number(input?.originalPrice ?? offerPrice);
   const originalPrice = Number.isFinite(originalPriceRaw) && originalPriceRaw >= offerPrice ? originalPriceRaw : offerPrice;
   const now = new Date();
-  const [result] = await getPool().query(
-    `
-      UPDATE products
-      SET
-        name = ?,
-        description = ?,
-        image_url = ?,
-        image_key = ?,
-        sku = ?,
-        badge = ?,
-        subtitle = ?,
-        category_id = ?,
-        price = ?,
-        original_price = ?,
-        offer_price = ?,
-        stock = ?,
-        is_active = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-    [
-      input.name,
-      input.description,
-      primaryImage.imageUrl ?? "",
-      primaryImage.imageKey ?? "",
-      input.sku,
-      input.badge ?? "",
-      input.subtitle ?? "",
-      input.categoryId,
-      offerPrice,
-      originalPrice,
-      offerPrice,
-      input.stock,
-      input.isActive ? 1 : 0,
-      now,
-      id,
-    ],
-  );
 
-  if (result.affectedRows === 0) {
-    return null;
+  try {
+    await getPrisma().product.update({
+      where: { id },
+      data: {
+        name: input.name,
+        description: input.description,
+        imageUrl: primaryImage.imageUrl ?? "",
+        imageKey: primaryImage.imageKey ?? "",
+        sku: input.sku,
+        badge: input.badge ?? "",
+        subtitle: input.subtitle ?? "",
+        categoryId: input.categoryId,
+        price: offerPrice,
+        originalPrice,
+        offerPrice,
+        stock: input.stock,
+        isActive: input.isActive ? true : false,
+        updatedAt: now,
+      },
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
   }
 
   await replaceProductImagesByProductId(id, normalizedImages);
@@ -185,44 +178,37 @@ export async function deleteProductById(id) {
     return false;
   }
 
-  const connection = await getPool().getConnection();
   try {
-    await connection.beginTransaction();
+    await getPrisma().$transaction(async (tx) => {
+      await tx.cartItem.deleteMany({
+        where: { productId: normalizedId },
+      });
 
-    await connection.query(
-      `
-        DELETE FROM cart_items
-        WHERE product_id = ?
-      `,
-      [normalizedId],
-    );
+      await tx.product.delete({
+        where: { id: normalizedId },
+      });
+    });
 
-    const [result] = await connection.query(
-      `
-        DELETE FROM products
-        WHERE id = ?
-      `,
-      [normalizedId],
-    );
-
-    await connection.commit();
-    return result.affectedRows > 0;
+    return true;
   } catch (error) {
-    await connection.rollback();
+    if (error.code === "P2025") {
+      return false;
+    }
     throw error;
-  } finally {
-    connection.release();
   }
 }
 
 export async function updateProductRatingStats(id, ratingAvg, reviewCount) {
-  const [result] = await getPool().query(
-    `
-      UPDATE products
-      SET rating_avg = ?, review_count = ?
-      WHERE id = ?
-    `,
-    [ratingAvg, reviewCount, id],
-  );
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().product.update({
+      where: { id },
+      data: { ratingAvg, reviewCount },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }

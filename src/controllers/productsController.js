@@ -29,7 +29,7 @@ app.get("/api/products/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/products", async (req, res, next) => {
+app.post("/api/products", requireAdminAccess, async (req, res, next) => {
   try {
     const validation = await validateProductPayload(req.body);
 
@@ -49,7 +49,7 @@ app.post("/api/products", async (req, res, next) => {
   }
 });
 
-app.put("/api/products/:id", async (req, res, next) => {
+app.put("/api/products/:id", requireAdminAccess, async (req, res, next) => {
   try {
     const product = await findProductById(req.params.id);
 
@@ -128,7 +128,7 @@ app.put("/api/products/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/products/:id", async (req, res, next) => {
+app.delete("/api/products/:id", requireAdminAccess, async (req, res, next) => {
   try {
     const product = await findProductById(req.params.id);
 

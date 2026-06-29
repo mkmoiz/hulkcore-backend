@@ -208,6 +208,27 @@ app.get(["/api/public/lab-reports", "/public/lab-reports"], async (_req, res, ne
   }
 });
 
+app.get(["/api/public/products/search", "/public/products/search"], async (req, res, next) => {
+  try {
+    const q = req.query.q;
+    const query = typeof q === "string" ? q.trim() : "";
+    if (!query) {
+      return res.json({ products: [] });
+    }
 
+    const searchCacheKey = `public:search:q:${query.toLowerCase()}`;
+    const cached = await getCacheJson(searchCacheKey);
+    if (cached && Array.isArray(cached.products)) {
+      return res.json(cached);
+    }
+
+    const products = await searchProducts(query);
+    const payload = { products };
+    await setCacheJson(searchCacheKey, payload, 300); // Cache search queries for 5 minutes
+    return res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
 
 export default app;

@@ -1,10 +1,11 @@
 import { Router } from "express";
 import * as core from "./index.js";
+import { otpRequestLimiter } from "../middlewares/rateLimiter.js";
 
 const app = Router();
 Object.assign(globalThis, core);
 
-app.post("/api/auth/otp/request", async (req, res, next) => {
+app.post("/api/auth/otp/request", otpRequestLimiter, async (req, res, next) => {
   try {
     const phoneNumber = normalizePhoneNumber(req.body?.phone);
     if (!PHONE_E164_PATTERN.test(phoneNumber)) {
@@ -92,7 +93,7 @@ app.post("/api/auth/otp/verify", async (req, res, next) => {
   }
 });
 
-app.post(["/api/auth/email/otp/request", "/api/auth/email/request"], async (req, res, next) => {
+app.post(["/api/auth/email/otp/request", "/api/auth/email/request"], otpRequestLimiter, async (req, res, next) => {
   try {
     const email = normalizeEmailAddress(req.body?.email);
     if (!EMAIL_PATTERN.test(email)) {

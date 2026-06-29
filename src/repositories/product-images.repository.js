@@ -1,28 +1,15 @@
-import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapProductImage } from "../mappers/product.mapper.js";
 
-export async function findProductImageRowsByProductIds(productIds, connection = getPool()) {
+export async function findProductImageRowsByProductIds(productIds, prismaClient = getPrisma()) {
   if (!Array.isArray(productIds) || productIds.length === 0) {
     return [];
   }
 
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        product_id AS productId,
-        image_url AS imageUrl,
-        image_key AS imageKey,
-        sort_order AS sortOrder,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM product_images
-      WHERE product_id IN (?)
-      ORDER BY product_id ASC, sort_order ASC, created_at ASC
-    `,
-    [productIds],
-  );
+  const rows = await prismaClient.productImage.findMany({
+    where: { productId: { in: productIds } },
+    orderBy: [{ productId: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+  });
 
   return rows;
 }
@@ -43,34 +30,30 @@ export function groupProductImageRowsByProductId(rows) {
   }, {});
 }
 
-export async function replaceProductImagesByProductId(productId, images, connection = getPool()) {
-  await connection.query(
-    `
-      DELETE FROM product_images
-      WHERE product_id = ?
-    `,
-    [productId],
-  );
+export async function replaceProductImagesByProductId(productId, images, prismaClient = getPrisma()) {
+  await prismaClient.productImage.deleteMany({
+    where: { productId },
+  });
 
   if (!Array.isArray(images) || images.length === 0) {
     return;
   }
 
+  const { createId } = await import("../utils.js");
   const now = new Date();
-  for (const image of images) {
-    await connection.query(
-      `
-        INSERT INTO product_images (
-          id,
-          product_id,
-          image_url,
-          image_key,
-          sort_order,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
-      [createId("pimg"), productId, image.imageUrl, image.imageKey ?? "", image.sortOrder ?? 0, now, now],
-    );
+  const records = images.map((image) => ({
+    id: createId("pimg"),
+    productId,
+    imageUrl: image.imageUrl,
+    imageKey: image.imageKey ?? "",
+    sortOrder: image.sortOrder ?? 0,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  if (records.length > 0) {
+    await prismaClient.productImage.createMany({
+      data: records,
+    });
   }
 }

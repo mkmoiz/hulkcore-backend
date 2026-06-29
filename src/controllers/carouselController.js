@@ -13,7 +13,7 @@ app.get("/api/carousel-images", async (_req, res, next) => {
   }
 });
 
-app.post("/api/carousel-images", async (req, res, next) => {
+app.post("/api/carousel-images", requireAdminAccess, async (req, res, next) => {
   try {
     const validation = await validateCarouselImagePayload(req.body);
     if (validation.error) {
@@ -31,7 +31,7 @@ app.post("/api/carousel-images", async (req, res, next) => {
   }
 });
 
-app.put("/api/carousel-images/:id", async (req, res, next) => {
+app.put("/api/carousel-images/:id", requireAdminAccess, async (req, res, next) => {
   try {
     const carouselImage = await findCarouselImageById(req.params.id);
 
@@ -95,7 +95,7 @@ app.put("/api/carousel-images/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/carousel-images/:id", async (req, res, next) => {
+app.delete("/api/carousel-images/:id", requireAdminAccess, async (req, res, next) => {
   try {
     const carouselImage = await findCarouselImageById(req.params.id);
 

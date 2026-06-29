@@ -1,174 +1,160 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapProductReview } from "../mappers/review.mapper.js";
-
-function buildSelectBody() {
-  return `
-    SELECT
-      r.id,
-      r.product_id AS productId,
-      r.user_id AS userId,
-      u.full_name AS userName,
-      r.rating,
-      r.headline,
-      r.comment,
-      r.is_approved AS isApproved,
-      r.is_highlighted AS isHighlighted,
-      r.created_at AS createdAt,
-      r.updated_at AS updatedAt
-    FROM product_reviews r
-    LEFT JOIN users u ON r.user_id = u.id
-  `;
-}
 
 export async function createProductReviewRow(input) {
   const now = new Date();
-  await getPool().query(
-    `
-      INSERT INTO product_reviews (
-        id, product_id, user_id, rating, headline, comment, is_approved, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      input.id,
-      input.productId,
-      input.userId,
-      input.rating,
-      input.headline || "",
-      input.comment || "",
-      0, // is_approved defaults to false
-      now,
-      now,
-    ],
-  );
+  await getPrisma().productReview.create({
+    data: {
+      id: input.id,
+      productId: input.productId,
+      userId: input.userId,
+      rating: input.rating,
+      headline: input.headline || null,
+      comment: input.comment || null,
+      isApproved: false,
+      isHighlighted: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 
   return findReviewById(input.id);
 }
 
 export async function findReviewById(id) {
-  const [rows] = await getPool().query(
-    `
-      ${buildSelectBody()}
-      WHERE r.id = ?
-    `,
-    [id],
-  );
+  const row = await getPrisma().productReview.findUnique({
+    where: { id },
+    include: { user: true },
+  });
 
-  return mapProductReview(rows[0]);
+  if (!row) return null;
+
+  return mapProductReview({
+    ...row,
+    userName: row.user?.fullName,
+  });
 }
 
 export async function getApprovedReviewsByProduct(productId) {
-  const [rows] = await getPool().query(
-    `
-      ${buildSelectBody()}
-      WHERE r.product_id = ? AND r.is_approved = 1
-      ORDER BY r.created_at DESC
-    `,
-    [productId],
-  );
+  const rows = await getPrisma().productReview.findMany({
+    where: { productId, isApproved: true },
+    include: { user: true },
+    orderBy: { createdAt: "desc" },
+  });
 
-  return rows.map(mapProductReview);
+  return rows.map((row) =>
+    mapProductReview({
+      ...row,
+      userName: row.user?.fullName,
+    })
+  );
 }
 
 export async function getAllReviewsRow(filters = {}) {
-  let query = buildSelectBody() + " WHERE 1=1";
-  const params = [];
-
+  const where = {};
   if (filters.productId) {
-    query += " AND r.product_id = ?";
-    params.push(filters.productId);
+    where.productId = filters.productId;
   }
-
   if (filters.isApproved !== undefined && filters.isApproved !== null) {
-    query += " AND r.is_approved = ?";
-    params.push(filters.isApproved ? 1 : 0);
+    where.isApproved = filters.isApproved ? true : false;
   }
 
-  query += " ORDER BY r.created_at DESC";
+  const queryParams = {
+    where,
+    include: { user: true },
+    orderBy: { createdAt: "desc" },
+  };
 
   if (filters.limit) {
-    query += " LIMIT ?";
-    params.push(filters.limit);
+    queryParams.take = filters.limit;
     if (filters.offset !== undefined) {
-      query += " OFFSET ?";
-      params.push(filters.offset);
+      queryParams.skip = filters.offset;
     }
   }
 
-  const [rows] = await getPool().query(query, params);
-  return rows.map(mapProductReview);
+  const rows = await getPrisma().productReview.findMany(queryParams);
+
+  return rows.map((row) =>
+    mapProductReview({
+      ...row,
+      userName: row.user?.fullName,
+    })
+  );
 }
 
 export async function updateReviewApproval(id, isApproved) {
   const now = new Date();
-  await getPool().query(
-    `
-      UPDATE product_reviews
-      SET is_approved = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [isApproved ? 1 : 0, now, id],
-  );
+  try {
+    await getPrisma().productReview.update({
+      where: { id },
+      data: { isApproved: isApproved ? true : false, updatedAt: now },
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
+  }
 
   return findReviewById(id);
 }
 
 export async function getHighlightedReviewsRow() {
-  const [rows] = await getPool().query(
-    `
-      ${buildSelectBody()}
-      WHERE r.is_highlighted = 1 AND r.is_approved = 1
-      ORDER BY r.created_at DESC
-      LIMIT 10
-    `
-  );
+  const rows = await getPrisma().productReview.findMany({
+    where: { isHighlighted: true, isApproved: true },
+    include: { user: true },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
 
-  return rows.map(mapProductReview);
+  return rows.map((row) =>
+    mapProductReview({
+      ...row,
+      userName: row.user?.fullName,
+    })
+  );
 }
 
 export async function updateReviewHighlight(id, isHighlighted) {
   const now = new Date();
-  await getPool().query(
-    `
-      UPDATE product_reviews
-      SET is_highlighted = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [isHighlighted ? 1 : 0, now, id],
-  );
+  try {
+    await getPrisma().productReview.update({
+      where: { id },
+      data: { isHighlighted: isHighlighted ? true : false, updatedAt: now },
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
+  }
 
   return findReviewById(id);
 }
 
 export async function deleteReviewRow(id) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM product_reviews
-      WHERE id = ?
-    `,
-    [id],
-  );
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().productReview.delete({
+      where: { id },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function getReviewStatsForProduct(productId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        COUNT(*) AS reviewCount,
-        COALESCE(AVG(rating), 0) AS ratingAvg
-      FROM product_reviews
-      WHERE product_id = ? AND is_approved = 1
-    `,
-    [productId],
-  );
-
-  if (!rows || rows.length === 0) {
-    return { reviewCount: 0, ratingAvg: 0 };
-  }
+  const stats = await getPrisma().productReview.aggregate({
+    where: { productId, isApproved: true },
+    _count: { id: true },
+    _avg: { rating: true },
+  });
 
   return {
-    reviewCount: Number(rows[0].reviewCount),
-    ratingAvg: parseFloat(Number(rows[0].ratingAvg).toFixed(2)),
+    reviewCount: stats._count.id ?? 0,
+    ratingAvg: parseFloat((stats._avg.rating ?? 0).toFixed(2)),
   };
 }

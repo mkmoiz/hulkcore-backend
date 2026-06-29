@@ -461,63 +461,80 @@ export async function validateOfferProductsPayload(body) {
 }
 
 export async function validateHomepageProductsPayload(body) {
-  if (!body || typeof body !== "object") {
-    return { error: "Payload is required." };
+  if (!Array.isArray(body)) {
+    return { error: "Payload must be an array of homepage product sections." };
   }
 
-  const sectionSource = body.section && typeof body.section === "object" ? body.section : body;
-  const name = cleanText(sectionSource?.name || "Featured Products");
-  const heading = cleanText(sectionSource?.heading || "Shop Featured Products");
-  const sectionIsActive =
-    typeof sectionSource?.isActive === "boolean" ? sectionSource.isActive : true;
+  const normalizedSections = [];
 
-  if (!name) {
-    return { error: "Homepage product section name is required." };
-  }
-  if (!heading) {
-    return { error: "Homepage product section heading is required." };
-  }
-  if (!Array.isArray(body.items)) {
-    return { error: "items must be an array." };
-  }
-  if (body.items.length > 12) {
-    return { error: "Homepage products can contain at most 12 products." };
-  }
-
-  const normalized = [];
-  const seenProductIds = new Set();
-  for (const [index, item] of body.items.entries()) {
-    const productId = cleanText(item?.productId);
-    if (!productId) {
-      return { error: `Homepage product at index ${index} is missing productId.` };
+  for (const [secIndex, secPayload] of body.entries()) {
+    if (!secPayload || typeof secPayload !== "object") {
+      return { error: `Section at index ${secIndex} is invalid.` };
     }
 
-    if (seenProductIds.has(productId)) {
-      return { error: `Duplicate product in homepage products payload: ${productId}.` };
+    const sectionSource = secPayload.section;
+    if (!sectionSource || typeof sectionSource !== "object") {
+      return { error: `Section details are required for section at index ${secIndex}.` };
     }
 
-    const product = await findProductById(productId);
-    if (!product) {
-      return { error: `Homepage product not found: ${productId}.` };
+    const name = cleanText(sectionSource.name);
+    const heading = cleanText(sectionSource.heading);
+    const id = cleanText(sectionSource.id);
+    const position = typeof sectionSource.position === "number" ? sectionSource.position : secIndex;
+    const sectionIsActive =
+      typeof sectionSource.isActive === "boolean" ? sectionSource.isActive : true;
+
+    if (!name) {
+      return { error: `Homepage product section name is required for section at index ${secIndex}.` };
+    }
+    if (!heading) {
+      return { error: `Homepage product section heading is required for section at index ${secIndex}.` };
+    }
+    if (!Array.isArray(secPayload.items)) {
+      return { error: `items must be an array for section at index ${secIndex}.` };
+    }
+    if (secPayload.items.length > 12) {
+      return { error: `Homepage products can contain at most 12 products per section. (Section '${name}' has too many)` };
     }
 
-    seenProductIds.add(productId);
-    normalized.push({
-      productId,
-      isActive: typeof item?.isActive === "boolean" ? item.isActive : true,
+    const normalizedItems = [];
+    const seenProductIds = new Set();
+    for (const [itemIndex, item] of secPayload.items.entries()) {
+      const productId = cleanText(item?.productId);
+      if (!productId) {
+        return { error: `Homepage product at index ${itemIndex} in section '${name}' is missing productId.` };
+      }
+
+      if (seenProductIds.has(productId)) {
+        return { error: `Duplicate product in section '${name}': ${productId}.` };
+      }
+
+      const product = await findProductById(productId);
+      if (!product) {
+        return { error: `Homepage product not found in section '${name}': ${productId}.` };
+      }
+
+      seenProductIds.add(productId);
+      normalizedItems.push({
+        productId,
+        isActive: typeof item?.isActive === "boolean" ? item.isActive : true,
+        position: typeof item?.position === "number" ? item.position : itemIndex,
+      });
+    }
+
+    normalizedSections.push({
+      section: {
+        id,
+        name,
+        heading,
+        position,
+        isActive: sectionIsActive,
+      },
+      items: normalizedItems,
     });
   }
 
-  return {
-    value: {
-      section: {
-        name,
-        heading,
-        isActive: sectionIsActive,
-      },
-      items: normalized,
-    },
-  };
+  return { value: normalizedSections };
 }
 
 function normalizeOptionalDateValue(value) {

@@ -1,331 +1,249 @@
 import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapCart } from "../mappers/cart.mapper.js";
 import { createStoreError } from "../utils/errors.js";
 import { normalizeCustomerRef } from "../utils/normalize.js";
 
-export async function findActiveCartRowByCustomerRef(customerRef, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        customer_ref AS customerRef,
-        status,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM carts
-      WHERE customer_ref = ? AND status = 'active'
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `,
-    [customerRef],
-  );
+export async function findActiveCartRowByCustomerRef(customerRef, prismaClient = getPrisma()) {
+  const row = await prismaClient.cart.findFirst({
+    where: { customerRef, status: "active" },
+    orderBy: { updatedAt: "desc" },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
-export async function findCartRowById(cartId, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        customer_ref AS customerRef,
-        status,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM carts
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [cartId],
-  );
+export async function findCartRowById(cartId, prismaClient = getPrisma()) {
+  const row = await prismaClient.cart.findUnique({
+    where: { id: cartId },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
-export async function findCartItemRowsByCartId(cartId, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        ci.id,
-        ci.cart_id AS cartId,
-        ci.product_id AS productId,
-        ci.quantity,
-        ci.unit_price AS unitPrice,
-        (ci.quantity * ci.unit_price) AS lineTotal,
-        ci.created_at AS createdAt,
-        ci.updated_at AS updatedAt,
-        p.name AS productName,
-        p.description AS productDescription,
-        p.image_url AS productImageUrl,
-        p.sku AS productSku,
-        p.stock AS productStock,
-        p.is_active AS productIsActive,
-        c.id AS categoryId,
-        c.name AS categoryName
-      FROM cart_items ci
-      JOIN products p ON p.id = ci.product_id
-      LEFT JOIN categories c ON c.id = p.category_id
-      WHERE ci.cart_id = ?
-      ORDER BY ci.created_at ASC
-    `,
-    [cartId],
-  );
+export async function findCartItemRowsByCartId(cartId, prismaClient = getPrisma()) {
+  const rows = await prismaClient.cartItem.findMany({
+    where: { cartId },
+    include: {
+      product: {
+        include: { category: true },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
 
-  return rows;
+  // Map to the flat structure the mapper expects
+  return rows.map((row) => ({
+    id: row.id,
+    cartId: row.cartId,
+    productId: row.productId,
+    quantity: row.quantity,
+    unitPrice: row.unitPrice,
+    lineTotal: Number(row.quantity) * Number(row.unitPrice),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    productName: row.product?.name ?? "",
+    productDescription: row.product?.description ?? "",
+    productImageUrl: row.product?.imageUrl ?? "",
+    productSku: row.product?.sku ?? "",
+    productStock: row.product?.stock ?? 0,
+    productIsActive: row.product?.isActive,
+    categoryId: row.product?.category?.id ?? null,
+    categoryName: row.product?.category?.name ?? "",
+  }));
 }
 
-export async function findCartComboItemRowsByCartId(cartId, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        cart_id AS cartId,
-        combo_offer_id AS comboOfferId,
-        combo_title AS comboTitle,
-        banner_image_url AS bannerImageUrl,
-        products_json AS productsJson,
-        quantity,
-        unit_price AS unitPrice,
-        (quantity * unit_price) AS lineTotal,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM cart_combo_items
-      WHERE cart_id = ?
-      ORDER BY created_at ASC
-    `,
-    [cartId],
-  );
+export async function findCartComboItemRowsByCartId(cartId, prismaClient = getPrisma()) {
+  const rows = await prismaClient.cartComboItem.findMany({
+    where: { cartId },
+    orderBy: { createdAt: "asc" },
+  });
 
-  return rows;
+  return rows.map((row) => ({
+    id: row.id,
+    cartId: row.cartId,
+    comboOfferId: row.comboOfferId,
+    comboTitle: row.comboTitle,
+    bannerImageUrl: row.bannerImageUrl,
+    productsJson: row.productsJson,
+    quantity: row.quantity,
+    unitPrice: row.unitPrice,
+    lineTotal: Number(row.quantity) * Number(row.unitPrice),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }));
 }
 
-export async function touchCart(cartId, connection = getPool()) {
+export async function touchCart(cartId, prismaClient = getPrisma()) {
   const now = new Date();
-  await connection.query(
-    `
-      UPDATE carts
-      SET updated_at = ?
-      WHERE id = ?
-    `,
-    [now, cartId],
-  );
+  await prismaClient.cart.update({
+    where: { id: cartId },
+    data: { updatedAt: now },
+  });
 }
 
-export async function createActiveCartRow(customerRef, connection = getPool()) {
+export async function createActiveCartRow(customerRef, prismaClient = getPrisma()) {
   const now = new Date();
   const cartId = createId("cart");
 
-  await connection.query(
-    `
-      INSERT INTO carts (
-        id,
-        customer_ref,
-        status,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, 'active', ?, ?)
-    `,
-    [cartId, customerRef, now, now],
-  );
+  await prismaClient.cart.create({
+    data: {
+      id: cartId,
+      customerRef,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 
-  return findCartRowById(cartId, connection);
+  return findCartRowById(cartId, prismaClient);
 }
 
-export async function getOrCreateActiveCartRow(customerRef, connection = getPool()) {
+export async function getOrCreateActiveCartRow(customerRef, prismaClient = getPrisma()) {
   const normalizedCustomerRef = normalizeCustomerRef(customerRef);
   if (!normalizedCustomerRef) {
     throw createStoreError("Customer reference is required.", "CART_CUSTOMER_REF_REQUIRED", 400);
   }
 
-  const existingCart = await findActiveCartRowByCustomerRef(normalizedCustomerRef, connection);
+  const existingCart = await findActiveCartRowByCustomerRef(normalizedCustomerRef, prismaClient);
   if (existingCart) {
     return existingCart;
   }
 
-  return createActiveCartRow(normalizedCustomerRef, connection);
+  return createActiveCartRow(normalizedCustomerRef, prismaClient);
 }
 
-export async function getCartById(cartId, connection = getPool()) {
-  const cartRow = await findCartRowById(cartId, connection);
+export async function getCartById(cartId, prismaClient = getPrisma()) {
+  const cartRow = await findCartRowById(cartId, prismaClient);
   if (!cartRow) {
     return null;
   }
 
   const [cartItemRows, cartComboRows] = await Promise.all([
-    findCartItemRowsByCartId(cartId, connection),
-    findCartComboItemRowsByCartId(cartId, connection),
+    findCartItemRowsByCartId(cartId, prismaClient),
+    findCartComboItemRowsByCartId(cartId, prismaClient),
   ]);
   return mapCart(cartRow, cartItemRows, cartComboRows);
 }
 
 export async function findExistingCartItemRow(cartId, productId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT id, quantity
-      FROM cart_items
-      WHERE cart_id = ? AND product_id = ?
-      LIMIT 1
-    `,
-    [cartId, productId],
-  );
+  const row = await getPrisma().cartItem.findFirst({
+    where: { cartId, productId },
+    select: { id: true, quantity: true },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 export async function findExistingCartComboItemRow(cartId, comboOfferId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT id, quantity
-      FROM cart_combo_items
-      WHERE cart_id = ? AND combo_offer_id = ?
-      LIMIT 1
-    `,
-    [cartId, comboOfferId],
-  );
+  const row = await getPrisma().cartComboItem.findFirst({
+    where: { cartId, comboOfferId },
+    select: { id: true, quantity: true },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 export async function findCartItemForCart(itemId, cartId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT id, product_id AS productId
-      FROM cart_items
-      WHERE id = ? AND cart_id = ?
-      LIMIT 1
-    `,
-    [itemId, cartId],
-  );
+  const row = await getPrisma().cartItem.findFirst({
+    where: { id: itemId, cartId },
+    select: { id: true, productId: true },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 export async function findCartComboItemForCart(itemId, cartId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT id, combo_offer_id AS comboOfferId
-      FROM cart_combo_items
-      WHERE id = ? AND cart_id = ?
-      LIMIT 1
-    `,
-    [itemId, cartId],
-  );
+  const row = await getPrisma().cartComboItem.findFirst({
+    where: { id: itemId, cartId },
+    select: { id: true, comboOfferId: true },
+  });
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 export async function updateCartItemRow(itemId, quantity, unitPrice, now = new Date()) {
-  await getPool().query(
-    `
-      UPDATE cart_items
-      SET quantity = ?, unit_price = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [quantity, unitPrice, now, itemId],
-  );
+  await getPrisma().cartItem.update({
+    where: { id: itemId },
+    data: { quantity, unitPrice, updatedAt: now },
+  });
 }
 
 export async function updateCartComboItemRow(itemId, quantity, unitPrice, now = new Date()) {
-  await getPool().query(
-    `
-      UPDATE cart_combo_items
-      SET quantity = ?, unit_price = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [quantity, unitPrice, now, itemId],
-  );
+  await getPrisma().cartComboItem.update({
+    where: { id: itemId },
+    data: { quantity, unitPrice, updatedAt: now },
+  });
 }
 
 export async function insertCartItemRow(entry, now = new Date()) {
-  await getPool().query(
-    `
-      INSERT INTO cart_items (
-        id,
-        cart_id,
-        product_id,
-        quantity,
-        unit_price,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `,
-    [entry.id, entry.cartId, entry.productId, entry.quantity, entry.unitPrice, now, now],
-  );
+  await getPrisma().cartItem.create({
+    data: {
+      id: entry.id,
+      cartId: entry.cartId,
+      productId: entry.productId,
+      quantity: entry.quantity,
+      unitPrice: entry.unitPrice,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 }
 
 export async function insertCartComboItemRow(entry, now = new Date()) {
-  await getPool().query(
-    `
-      INSERT INTO cart_combo_items (
-        id,
-        cart_id,
-        combo_offer_id,
-        combo_title,
-        banner_image_url,
-        products_json,
-        quantity,
-        unit_price,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      entry.id,
-      entry.cartId,
-      entry.comboOfferId,
-      entry.comboTitle,
-      entry.bannerImageUrl,
-      entry.productsJson,
-      entry.quantity,
-      entry.unitPrice,
-      now,
-      now,
-    ],
-  );
+  await getPrisma().cartComboItem.create({
+    data: {
+      id: entry.id,
+      cartId: entry.cartId,
+      comboOfferId: entry.comboOfferId,
+      comboTitle: entry.comboTitle,
+      bannerImageUrl: entry.bannerImageUrl,
+      productsJson: entry.productsJson,
+      quantity: entry.quantity,
+      unitPrice: entry.unitPrice,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 }
 
 export async function deleteCartItemById(itemId) {
-  await getPool().query(
-    `
-      DELETE FROM cart_items
-      WHERE id = ?
-    `,
-    [itemId],
-  );
+  await getPrisma().cartItem.delete({
+    where: { id: itemId },
+  });
 }
 
 export async function deleteCartComboItemByIdAndCartId(itemId, cartId) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM cart_combo_items
-      WHERE id = ? AND cart_id = ?
-    `,
-    [itemId, cartId],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().cartComboItem.delete({
+      where: { id: itemId },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function deleteCartItemByIdAndCartId(itemId, cartId) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM cart_items
-      WHERE id = ? AND cart_id = ?
-    `,
-    [itemId, cartId],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().cartItem.delete({
+      where: { id: itemId },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }
 
-export async function markCartCheckedOut(cartId, now, connection = getPool()) {
-  await connection.query(
-    `
-      UPDATE carts
-      SET status = 'checked_out', updated_at = ?
-      WHERE id = ?
-    `,
-    [now, cartId],
-  );
+export async function markCartCheckedOut(cartId, now, prismaClient = getPrisma()) {
+  await prismaClient.cart.update({
+    where: { id: cartId },
+    data: { status: "checked_out", updatedAt: now },
+  });
 }

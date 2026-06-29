@@ -1,141 +1,100 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapLabReport } from "../mappers/level.mapper.js";
 
 export async function getLabReports(includeHidden = true) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        lr.id,
-        lr.title,
-        lr.description,
-        lr.report_url AS reportUrl,
-        lr.report_key AS reportKey,
-        lr.product_id AS productId,
-        lr.is_active AS isActive,
-        lr.position,
-        lr.created_at AS createdAt,
-        lr.updated_at AS updatedAt,
-        p.id AS productIdRef,
-        p.name AS productName,
-        p.image_url AS productImageUrl,
-        p.sku AS productSku
-      FROM lab_reports lr
-      LEFT JOIN products p ON p.id = lr.product_id
-      ${includeHidden ? "" : "WHERE lr.is_active = 1"}
-      ORDER BY lr.position ASC, lr.created_at ASC
-    `,
-  );
+  const where = includeHidden ? {} : { isActive: true };
+  const rows = await getPrisma().labReport.findMany({
+    where,
+    include: { product: true },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  });
 
-  return rows.map(mapLabReport).filter(Boolean);
+  return rows.map((row) =>
+    mapLabReport({
+      ...row,
+      productIdRef: row.product?.id,
+      productName: row.product?.name,
+      productImageUrl: row.product?.imageUrl,
+      productSku: row.product?.sku,
+    }),
+  );
 }
 
 export async function findLabReportById(id) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        lr.id,
-        lr.title,
-        lr.description,
-        lr.report_url AS reportUrl,
-        lr.report_key AS reportKey,
-        lr.product_id AS productId,
-        lr.is_active AS isActive,
-        lr.position,
-        lr.created_at AS createdAt,
-        lr.updated_at AS updatedAt,
-        p.id AS productIdRef,
-        p.name AS productName,
-        p.image_url AS productImageUrl,
-        p.sku AS productSku
-      FROM lab_reports lr
-      LEFT JOIN products p ON p.id = lr.product_id
-      WHERE lr.id = ?
-      LIMIT 1
-    `,
-    [id],
-  );
+  const row = await getPrisma().labReport.findUnique({
+    where: { id },
+    include: { product: true },
+  });
 
-  return mapLabReport(rows[0]);
+  if (!row) {
+    return null;
+  }
+
+  return mapLabReport({
+    ...row,
+    productIdRef: row.product?.id,
+    productName: row.product?.name,
+    productImageUrl: row.product?.imageUrl,
+    productSku: row.product?.sku,
+  });
 }
 
 export async function createLabReport(input) {
   const now = new Date();
-  await getPool().query(
-    `
-      INSERT INTO lab_reports (
-        id,
-        title,
-        description,
-        report_url,
-        report_key,
-        product_id,
-        is_active,
-        position,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      input.id,
-      input.title,
-      input.description ?? "",
-      input.reportUrl,
-      input.reportKey ?? "",
-      input.productId || null,
-      input.isActive ? 1 : 0,
-      input.position ?? 0,
-      now,
-      now,
-    ],
-  );
+  await getPrisma().labReport.create({
+    data: {
+      id: input.id,
+      title: input.title,
+      description: input.description ?? "",
+      reportUrl: input.reportUrl ?? "",
+      reportKey: input.reportKey ?? "",
+      productId: input.productId || null,
+      isActive: input.isActive ? true : false,
+      position: input.position ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 
   return findLabReportById(input.id);
 }
 
 export async function updateLabReportById(id, input) {
   const now = new Date();
-  const [result] = await getPool().query(
-    `
-      UPDATE lab_reports
-      SET
-        title = ?,
-        description = ?,
-        report_url = ?,
-        report_key = ?,
-        product_id = ?,
-        is_active = ?,
-        position = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-    [
-      input.title,
-      input.description ?? "",
-      input.reportUrl,
-      input.reportKey ?? "",
-      input.productId || null,
-      input.isActive ? 1 : 0,
-      input.position ?? 0,
-      now,
-      id,
-    ],
-  );
-
-  if (result.affectedRows === 0) {
-    return null;
+  try {
+    await getPrisma().labReport.update({
+      where: { id },
+      data: {
+        title: input.title,
+        description: input.description ?? "",
+        reportUrl: input.reportUrl ?? "",
+        reportKey: input.reportKey ?? "",
+        productId: input.productId || null,
+        isActive: input.isActive ? true : false,
+        position: input.position ?? 0,
+        updatedAt: now,
+      },
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
   }
 
   return findLabReportById(id);
 }
 
 export async function deleteLabReportById(id) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM lab_reports
-      WHERE id = ?
-    `,
-    [id],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().labReport.delete({
+      where: { id },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }

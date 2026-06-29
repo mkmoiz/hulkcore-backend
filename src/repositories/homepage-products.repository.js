@@ -1,191 +1,150 @@
 import { createId } from "../utils.js";
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapProduct } from "../mappers/product.mapper.js";
 import { toIsoString } from "../utils/dates.js";
 import { findProductImageRowsByProductIds, groupProductImageRowsByProductId } from "./product-images.repository.js";
 
-const SECTION_ID = "default";
-const DEFAULT_SECTION = {
-  id: SECTION_ID,
-  name: "Featured Products",
-  heading: "Shop Featured Products",
-  isActive: true,
-  updatedAt: null,
-};
-
 function mapSection(row) {
   if (!row) {
-    return DEFAULT_SECTION;
+    return {
+      id: "default",
+      name: "Featured Products",
+      heading: "Shop Featured Products",
+      position: 0,
+      isActive: true,
+      updatedAt: null,
+    };
   }
 
   return {
     id: row.id,
-    name: row.name ?? DEFAULT_SECTION.name,
-    heading: row.heading ?? DEFAULT_SECTION.heading,
+    name: row.name,
+    heading: row.heading,
+    position: Number(row.position ?? 0),
     isActive: Boolean(row.isActive),
     updatedAt: toIsoString(row.updatedAt),
   };
-}
-
-async function getHomepageProductSection(connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        id,
-        name,
-        heading,
-        is_active AS isActive,
-        updated_at AS updatedAt
-      FROM homepage_product_section
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [SECTION_ID],
-  );
-
-  return mapSection(rows[0]);
 }
 
 export async function getHomepageProducts(includeHidden = true) {
-  const section = await getHomepageProductSection();
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        hp.id,
-        hp.product_id AS productId,
-        hp.position,
-        hp.is_active AS isActive,
-        hp.created_at AS createdAt,
-        hp.updated_at AS updatedAt,
-        p.id AS productIdRef,
-        p.name,
-        p.description,
-        p.image_url AS imageUrl,
-        p.image_key AS imageKey,
-        p.sku,
-        p.badge,
-        p.subtitle,
-        p.category_id AS categoryId,
-        p.price,
-        p.original_price AS originalPrice,
-        p.offer_price AS offerPrice,
-        p.rating_avg AS ratingAvg,
-        p.review_count AS reviewCount,
-        p.stock,
-        p.is_active AS productIsActive,
-        p.created_at AS productCreatedAt,
-        p.updated_at AS productUpdatedAt,
-        c.id AS categoryIdRef,
-        c.name AS categoryName,
-        c.slug AS categorySlug
-      FROM homepage_products hp
-      JOIN products p ON p.id = hp.product_id
-      LEFT JOIN categories c ON c.id = p.category_id
-      ${includeHidden ? "" : "WHERE hp.is_active = 1"}
-      ORDER BY hp.position ASC, hp.created_at ASC
-    `,
-  );
+  const prisma = getPrisma();
+  const sectionWhere = includeHidden ? {} : { isActive: true };
+  const productWhere = includeHidden ? {} : { isActive: true };
 
-  const productIds = rows.map((row) => row.productIdRef).filter(Boolean);
-  const imageRows = await findProductImageRowsByProductIds(productIds);
-  const imagesByProductId = groupProductImageRowsByProductId(imageRows);
+  // Fetch sections ordered by position
+  const sections = await prisma.homepageProductSection.findMany({
+    where: sectionWhere,
+    orderBy: { position: "asc" },
+  });
 
-  const items = rows.map((row, index) => ({
-    id: row.id,
-    productId: row.productId,
-    position: Number(row.position ?? index),
-    isActive: Boolean(row.isActive),
-    createdAt: toIsoString(row.createdAt),
-    updatedAt: toIsoString(row.updatedAt),
-    product: mapProduct(
-      {
-        id: row.productIdRef,
-        name: row.name,
-        description: row.description,
-        imageUrl: row.imageUrl,
-        imageKey: row.imageKey,
-        sku: row.sku,
-        badge: row.badge,
-        subtitle: row.subtitle,
-        categoryId: row.categoryId,
-        price: row.price,
-        originalPrice: row.originalPrice,
-        offerPrice: row.offerPrice,
-        ratingAvg: row.ratingAvg,
-        reviewCount: row.reviewCount,
-        stock: row.stock,
-        isActive: row.productIsActive,
-        createdAt: row.productCreatedAt,
-        updatedAt: row.productUpdatedAt,
-        categoryIdRef: row.categoryIdRef,
-        categoryName: row.categoryName,
-        categorySlug: row.categorySlug,
+  const results = [];
+
+  for (const sec of sections) {
+    const rows = await prisma.homepageProduct.findMany({
+      where: {
+        sectionId: sec.id,
+        ...productWhere,
       },
-      imagesByProductId[row.productIdRef] ?? [],
-    ),
-  }));
+      include: {
+        product: {
+          include: { category: true },
+        },
+      },
+      orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    });
 
-  return {
-    section,
-    items,
-  };
+    const productIds = rows.map((row) => row.product?.id).filter(Boolean);
+    const imageRows = await findProductImageRowsByProductIds(productIds);
+    const imagesByProductId = groupProductImageRowsByProductId(imageRows);
+
+    const items = rows.map((row, index) => ({
+      id: row.id,
+      sectionId: row.sectionId,
+      productId: row.productId,
+      position: Number(row.position ?? index),
+      isActive: Boolean(row.isActive),
+      createdAt: toIsoString(row.createdAt),
+      updatedAt: toIsoString(row.updatedAt),
+      product: mapProduct(
+        {
+          id: row.product?.id,
+          name: row.product?.name,
+          description: row.product?.description,
+          imageUrl: row.product?.imageUrl,
+          imageKey: row.product?.imageKey,
+          sku: row.product?.sku,
+          badge: row.product?.badge,
+          subtitle: row.product?.subtitle,
+          categoryId: row.product?.categoryId,
+          price: row.product?.price,
+          originalPrice: row.product?.originalPrice,
+          offerPrice: row.product?.offerPrice,
+          ratingAvg: row.product?.ratingAvg,
+          reviewCount: row.product?.reviewCount,
+          stock: row.product?.stock,
+          isActive: row.product?.isActive,
+          createdAt: row.product?.createdAt,
+          updatedAt: row.product?.updatedAt,
+          categoryIdRef: row.product?.category?.id,
+          categoryName: row.product?.category?.name,
+          categorySlug: row.product?.category?.slug,
+        },
+        imagesByProductId[row.product?.id] ?? [],
+      ),
+    }));
+
+    results.push({
+      section: mapSection(sec),
+      items,
+    });
+  }
+
+  return results;
 }
 
-export async function replaceHomepageProducts(input) {
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
-
+export async function replaceHomepageProducts(sectionsPayload) {
+  const prisma = getPrisma();
+  await prisma.$transaction(async (tx) => {
     const now = new Date();
-    await connection.query(
-      `
-        INSERT INTO homepage_product_section (
-          id,
-          name,
-          heading,
-          is_active,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          name = VALUES(name),
-          heading = VALUES(heading),
-          is_active = VALUES(is_active),
-          updated_at = VALUES(updated_at)
-      `,
-      [SECTION_ID, input.section.name, input.section.heading, input.section.isActive ? 1 : 0, now],
-    );
 
-    await connection.query("DELETE FROM homepage_products");
-    for (const [index, entry] of input.items.entries()) {
-      await connection.query(
-        `
-          INSERT INTO homepage_products (
-            id,
-            product_id,
-            position,
-            is_active,
-            created_at,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `,
-        [
-          createId("hmp"),
-          entry.productId,
-          index,
-          entry.isActive ? 1 : 0,
-          now,
-          now,
-        ],
-      );
+    // 1. Delete all existing sections (which cascade deletes products)
+    await tx.homepageProductSection.deleteMany();
+
+    // 2. Re-create sections and products
+    for (const [secIndex, secPayload] of sectionsPayload.entries()) {
+      const sectionId = secPayload.section.id || createId("hms");
+
+      await tx.homepageProductSection.create({
+        data: {
+          id: sectionId,
+          name: secPayload.section.name,
+          heading: secPayload.section.heading || "",
+          position: Number(secPayload.section.position ?? secIndex),
+          isActive: secPayload.section.isActive !== false,
+          updatedAt: now,
+        },
+      });
+
+      const records = [];
+      for (const [itemIndex, item] of secPayload.items.entries()) {
+        records.push({
+          id: createId("hmp"),
+          sectionId: sectionId,
+          productId: item.productId,
+          position: Number(item.position ?? itemIndex),
+          isActive: item.isActive !== false,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      if (records.length > 0) {
+        await tx.homepageProduct.createMany({
+          data: records,
+        });
+      }
     }
-
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+  });
 
   return getHomepageProducts(true);
 }

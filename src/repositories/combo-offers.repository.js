@@ -1,4 +1,4 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { toIsoString } from "../utils/dates.js";
 import { normalizeText } from "../utils/normalize.js";
 import { createId } from "../utils.js";
@@ -37,16 +37,20 @@ function toComboProduct(row, fallbackPosition = 0) {
   return {
     productId: row.productId,
     position: Number(row.position ?? fallbackPosition),
-    name: row.productName ?? "",
-    imageUrl: row.productImageUrl ?? "",
-    price: Number(row.offerPrice ?? row.price ?? 0),
-    originalPrice: Number(row.originalPrice ?? row.price ?? 0),
-    offerPrice: Number(row.offerPrice ?? row.price ?? 0),
-    isActive: Boolean(row.productIsActive),
+    name: row.product?.name ?? "",
+    imageUrl: row.product?.imageUrl ?? "",
+    price: Number(row.product?.offerPrice || row.product?.price || 0),
+    originalPrice: Number(row.product?.originalPrice || row.product?.price || 0),
+    offerPrice: Number(row.product?.offerPrice || row.product?.price || 0),
+    isActive: Boolean(row.product?.isActive),
   };
 }
 
-function toComboOffer(row, products, now = new Date()) {
+function toComboOffer(row, now = new Date()) {
+  if (!row) return null;
+
+  const products = Array.isArray(row.products) ? row.products.map((p, i) => toComboProduct(p, i)) : [];
+
   const sortedProducts = [...products]
     .sort((left, right) => Number(left.position ?? 0) - Number(right.position ?? 0))
     .map((entry, index) => ({
@@ -61,8 +65,15 @@ function toComboOffer(row, products, now = new Date()) {
   const saveAmount = toRounded(Math.max(0, totalOriginalPrice - offerPrice));
   const discountPercentage =
     totalOriginalPrice > 0 ? toRounded((saveAmount / totalOriginalPrice) * 100) : 0;
-  const startDate = row.startDate ? toIsoString(row.startDate) : null;
-  const endDate = row.endDate ? toIsoString(row.endDate) : null;
+  const startDate = row.startAt ? toIsoString(row.startAt) : null;
+  const endDate = row.endAt ? toIsoString(row.endAt) : null;
+
+  // We have to query sales count separately or aggregate it if needed,
+  // but for Prisma, we usually don't map it directly unless we include it in the query.
+  // The existing repo used a subquery: (SELECT SUM(quantity) FROM order_combo_items WHERE combo_offer_id = co.id)
+  // With Prisma we can aggregate it, but since it's a separate model, we do it in the service if needed,
+  // or we add it to the row if we fetched it.
+  const salesCount = Number(row.salesCount ?? 0);
 
   return {
     id: row.id,
@@ -75,7 +86,7 @@ function toComboOffer(row, products, now = new Date()) {
     discountPercentage,
     saveAmount,
     position: Number(row.position ?? 0),
-    salesCount: Number(row.salesCount ?? 0),
+    salesCount,
     isActive: Boolean(row.isActive),
     status: deriveComboOfferStatus(
       {
@@ -93,85 +104,42 @@ function toComboOffer(row, products, now = new Date()) {
   };
 }
 
-async function findComboOfferRows(includeHidden = true, connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT
-        co.id,
-        co.title,
-        co.banner_image_url AS bannerImageUrl,
-        co.banner_image_key AS bannerImageKey,
-        co.description,
-        co.offer_price AS offerPrice,
-        co.position,
-        co.is_active AS isActive,
-        co.start_at AS startDate,
-        co.end_at AS endDate,
-        COALESCE(
-          (
-            SELECT SUM(oci.quantity)
-            FROM order_combo_items oci
-            WHERE oci.combo_offer_id = co.id
-          ),
-          0
-        ) AS salesCount,
-        co.created_at AS createdAt,
-        co.updated_at AS updatedAt
-      FROM combo_offers co
-      ${
-        includeHidden
-          ? ""
-          : "WHERE co.is_active = 1 AND (co.start_at IS NULL OR co.start_at <= NOW()) AND (co.end_at IS NULL OR co.end_at >= NOW())"
-      }
-      ORDER BY co.position ASC, co.created_at DESC
-    `,
-  );
-
-  return rows;
-}
-
-async function findComboOfferProductsByOfferIds(offerIds, connection = getPool()) {
-  if (!Array.isArray(offerIds) || offerIds.length === 0) {
-    return [];
-  }
-
-  const [rows] = await connection.query(
-    `
-      SELECT
-        cop.combo_offer_id AS comboOfferId,
-        cop.product_id AS productId,
-        cop.position,
-        p.name AS productName,
-        p.image_url AS productImageUrl,
-        p.price,
-        p.original_price AS originalPrice,
-        p.offer_price AS offerPrice,
-        p.is_active AS productIsActive
-      FROM combo_offer_products cop
-      JOIN products p ON p.id = cop.product_id
-      WHERE cop.combo_offer_id IN (?)
-      ORDER BY cop.combo_offer_id ASC, cop.position ASC, cop.created_at ASC
-    `,
-    [offerIds],
-  );
-
-  return rows;
-}
-
 export async function getComboOffers(includeHidden = true) {
-  const rows = await findComboOfferRows(includeHidden);
+  const where = includeHidden
+    ? {}
+    : {
+        isActive: true,
+        AND: [
+          { OR: [{ startAt: null }, { startAt: { lte: new Date() } }] },
+          { OR: [{ endAt: null }, { endAt: { gte: new Date() } }] },
+        ],
+      };
+
+  const rows = await getPrisma().comboOffer.findMany({
+    where,
+    include: {
+      products: {
+        include: { product: true },
+        orderBy: { position: 'asc' },
+      },
+    },
+    orderBy: [{ position: 'asc' }, { createdAt: 'desc' }],
+  });
+
   if (rows.length === 0) {
     return [];
   }
 
-  const comboOfferIds = rows.map((row) => row.id);
-  const productRows = await findComboOfferProductsByOfferIds(comboOfferIds);
-  const productsByOfferId = productRows.reduce((acc, row) => {
-    if (!acc[row.comboOfferId]) {
-      acc[row.comboOfferId] = [];
-    }
+  // Aggregate salesCount
+  const offerIds = rows.map((r) => r.id);
+  const salesCountGroups = await getPrisma().orderComboItem.groupBy({
+    by: ['comboOfferId'],
+    where: { comboOfferId: { in: offerIds } },
+    _sum: { quantity: true },
+  });
 
-    acc[row.comboOfferId].push(toComboProduct(row, acc[row.comboOfferId].length));
+  const salesCountMap = salesCountGroups.reduce((acc, group) => {
+    acc[group.comboOfferId] = group._sum.quantity ?? 0;
     return acc;
   }, {});
 
@@ -181,8 +149,8 @@ export async function getComboOffers(includeHidden = true) {
       {
         ...row,
         position: Number(row.position ?? index),
+        salesCount: salesCountMap[row.id] ?? 0,
       },
-      productsByOfferId[row.id] ?? [],
       now,
     ),
   );
@@ -194,43 +162,33 @@ export async function findComboOfferById(id, includeHidden = true) {
     return null;
   }
 
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        co.id,
-        co.title,
-        co.banner_image_url AS bannerImageUrl,
-        co.banner_image_key AS bannerImageKey,
-        co.description,
-        co.offer_price AS offerPrice,
-        co.position,
-        co.is_active AS isActive,
-        co.start_at AS startDate,
-        co.end_at AS endDate,
-        COALESCE(
-          (
-            SELECT SUM(oci.quantity)
-            FROM order_combo_items oci
-            WHERE oci.combo_offer_id = co.id
-          ),
-          0
-        ) AS salesCount,
-        co.created_at AS createdAt,
-        co.updated_at AS updatedAt
-      FROM combo_offers co
-      WHERE co.id = ?
-      LIMIT 1
-    `,
-    [comboOfferId],
-  );
-  const row = rows[0];
+  const row = await getPrisma().comboOffer.findUnique({
+    where: { id: comboOfferId },
+    include: {
+      products: {
+        include: { product: true },
+        orderBy: { position: 'asc' },
+      },
+    },
+  });
+
   if (!row) {
     return null;
   }
 
-  const productRows = await findComboOfferProductsByOfferIds([comboOfferId]);
-  const products = productRows.map((entry, index) => toComboProduct(entry, index));
-  const offer = toComboOffer(row, products);
+  const salesAggregation = await getPrisma().orderComboItem.aggregate({
+    where: { comboOfferId },
+    _sum: { quantity: true },
+  });
+
+  const offer = toComboOffer(
+    {
+      ...row,
+      salesCount: salesAggregation._sum.quantity ?? 0,
+    },
+    new Date(),
+  );
+
   if (!includeHidden && offer.status !== "active") {
     return null;
   }
@@ -251,85 +209,56 @@ function toDbDate(value) {
   return date;
 }
 
-async function nextComboOfferPosition(connection = getPool()) {
-  const [rows] = await connection.query(
-    `
-      SELECT COALESCE(MAX(position), -1) + 1 AS nextPosition
-      FROM combo_offers
-    `,
-  );
-
-  return Number(rows?.[0]?.nextPosition ?? 0);
+async function nextComboOfferPosition(prismaClient = getPrisma()) {
+  const result = await prismaClient.comboOffer.aggregate({
+    _max: { position: true },
+  });
+  return (result._max.position ?? -1) + 1;
 }
 
 export async function createComboOffer(input) {
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
+  const comboOfferId = createId("cbo");
+  const now = new Date();
+  const startDate = toDbDate(input?.startDate);
+  const endDate = toDbDate(input?.endDate);
 
-    const comboOfferId = createId("cbo");
-    const now = new Date();
-    const position = await nextComboOfferPosition(connection);
-    const startDate = toDbDate(input?.startDate);
-    const endDate = toDbDate(input?.endDate);
+  await getPrisma().$transaction(async (tx) => {
+    const position = await nextComboOfferPosition(tx);
 
-    await connection.query(
-      `
-        INSERT INTO combo_offers (
-          id,
-          title,
-          banner_image_url,
-          banner_image_key,
-          description,
-          offer_price,
-          position,
-          is_active,
-          start_at,
-          end_at,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        comboOfferId,
-        input.title,
-        input.bannerImageUrl,
-        input.bannerImageKey ?? "",
-        input.description ?? "",
-        Number(input.offerPrice ?? 0),
+    await tx.comboOffer.create({
+      data: {
+        id: comboOfferId,
+        title: input.title,
+        bannerImageUrl: input.bannerImageUrl,
+        bannerImageKey: input.bannerImageKey ?? "",
+        description: input.description ?? "",
+        offerPrice: Number(input.offerPrice ?? 0),
         position,
-        input.isActive ? 1 : 0,
-        startDate,
-        endDate,
-        now,
-        now,
-      ],
-    );
+        isActive: input.isActive ? true : false,
+        startAt: startDate,
+        endAt: endDate,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
 
-    for (const [index, productId] of input.productIds.entries()) {
-      await connection.query(
-        `
-          INSERT INTO combo_offer_products (
-            id,
-            combo_offer_id,
-            product_id,
-            position,
-            created_at,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `,
-        [createId("cbop"), comboOfferId, productId, index, now, now],
-      );
+    const comboProducts = input.productIds.map((productId, index) => ({
+      id: createId("cbop"),
+      comboOfferId,
+      productId,
+      position: index,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    if (comboProducts.length > 0) {
+      await tx.comboOfferProduct.createMany({
+        data: comboProducts,
+      });
     }
+  });
 
-    await connection.commit();
-    return findComboOfferById(comboOfferId, true);
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+  return findComboOfferById(comboOfferId, true);
 }
 
 export async function updateComboOfferById(id, input) {
@@ -338,90 +267,54 @@ export async function updateComboOfferById(id, input) {
     return null;
   }
 
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
+  const now = new Date();
+  const startDate = toDbDate(input?.startDate);
+  const endDate = toDbDate(input?.endDate);
 
-    const [existingRows] = await connection.query(
-      `
-        SELECT id
-        FROM combo_offers
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [comboOfferId],
-    );
-    if (existingRows.length === 0) {
-      await connection.rollback();
+  try {
+    await getPrisma().$transaction(async (tx) => {
+      await tx.comboOffer.update({
+        where: { id: comboOfferId },
+        data: {
+          title: input.title,
+          bannerImageUrl: input.bannerImageUrl,
+          bannerImageKey: input.bannerImageKey ?? "",
+          description: input.description ?? "",
+          offerPrice: Number(input.offerPrice ?? 0),
+          isActive: input.isActive ? true : false,
+          startAt: startDate,
+          endAt: endDate,
+          updatedAt: now,
+        },
+      });
+
+      await tx.comboOfferProduct.deleteMany({
+        where: { comboOfferId },
+      });
+
+      const comboProducts = input.productIds.map((productId, index) => ({
+        id: createId("cbop"),
+        comboOfferId,
+        productId,
+        position: index,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      if (comboProducts.length > 0) {
+        await tx.comboOfferProduct.createMany({
+          data: comboProducts,
+        });
+      }
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
       return null;
     }
-
-    const now = new Date();
-    const startDate = toDbDate(input?.startDate);
-    const endDate = toDbDate(input?.endDate);
-
-    await connection.query(
-      `
-        UPDATE combo_offers
-        SET
-          title = ?,
-          banner_image_url = ?,
-          banner_image_key = ?,
-          description = ?,
-          offer_price = ?,
-          is_active = ?,
-          start_at = ?,
-          end_at = ?,
-          updated_at = ?
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [
-        input.title,
-        input.bannerImageUrl,
-        input.bannerImageKey ?? "",
-        input.description ?? "",
-        Number(input.offerPrice ?? 0),
-        input.isActive ? 1 : 0,
-        startDate,
-        endDate,
-        now,
-        comboOfferId,
-      ],
-    );
-
-    await connection.query(
-      `
-        DELETE FROM combo_offer_products
-        WHERE combo_offer_id = ?
-      `,
-      [comboOfferId],
-    );
-
-    for (const [index, productId] of input.productIds.entries()) {
-      await connection.query(
-        `
-          INSERT INTO combo_offer_products (
-            id,
-            combo_offer_id,
-            product_id,
-            position,
-            created_at,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `,
-        [createId("cbop"), comboOfferId, productId, index, now, now],
-      );
-    }
-
-    await connection.commit();
-    return findComboOfferById(comboOfferId, true);
-  } catch (error) {
-    await connection.rollback();
     throw error;
-  } finally {
-    connection.release();
   }
+
+  return findComboOfferById(comboOfferId, true);
 }
 
 export async function deleteComboOfferById(id) {
@@ -430,16 +323,17 @@ export async function deleteComboOfferById(id) {
     return false;
   }
 
-  const [result] = await getPool().query(
-    `
-      DELETE FROM combo_offers
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [comboOfferId],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().comboOffer.delete({
+      where: { id: comboOfferId },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function duplicateComboOfferById(id) {

@@ -1,139 +1,104 @@
-import { getPool } from "../db/connection.js";
+import { getPrisma } from "../db/prisma.js";
 import { mapCategory } from "../mappers/category.mapper.js";
 
 export async function getCategories() {
-  const [rows] = await getPool().query(`
-    SELECT
-      id,
-      name,
-      slug,
-      description,
-      image_url AS imageUrl,
-      image_key AS imageKey,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM categories
-    ORDER BY created_at DESC
-  `);
+  const rows = await getPrisma().category.findMany({
+    orderBy: { createdAt: "desc" },
+  });
 
   return rows.map(mapCategory);
 }
 
 export async function findCategoryById(id) {
-  const [rows] = await getPool().query(
-    `
-      SELECT
-        id,
-        name,
-        slug,
-        description,
-        image_url AS imageUrl,
-        image_key AS imageKey,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM categories
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [id],
-  );
+  const row = await getPrisma().category.findUnique({
+    where: { id },
+  });
 
-  return mapCategory(rows[0]);
+  return mapCategory(row);
 }
 
 export async function findCategoryByName(name, excludeId) {
-  const params = [name];
-  let sql = `
-    SELECT
-      id,
-      name,
-      slug,
-      description,
-      image_url AS imageUrl,
-      image_key AS imageKey,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM categories
-    WHERE LOWER(name) = LOWER(?)
-  `;
+  const where = {
+    name: { equals: name, mode: "insensitive" },
+  };
 
   if (excludeId) {
-    sql += " AND id <> ?";
-    params.push(excludeId);
+    where.id = { not: excludeId };
   }
 
-  sql += " LIMIT 1";
+  const row = await getPrisma().category.findFirst({
+    where,
+  });
 
-  const [rows] = await getPool().query(sql, params);
-  return mapCategory(rows[0]);
+  return mapCategory(row);
 }
 
 export async function createCategory(input) {
   const now = new Date();
-  await getPool().query(
-    `
-      INSERT INTO categories (id, name, slug, description, image_url, image_key, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [input.id, input.name, input.slug, input.description, input.imageUrl ?? "", input.imageKey ?? "", now, now],
-  );
+  await getPrisma().category.create({
+    data: {
+      id: input.id,
+      name: input.name,
+      slug: input.slug,
+      description: input.description,
+      imageUrl: input.imageUrl ?? "",
+      imageKey: input.imageKey ?? "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 
   return findCategoryById(input.id);
 }
 
 export async function updateCategoryById(id, input) {
   const now = new Date();
-  const [result] = await getPool().query(
-    `
-      UPDATE categories
-      SET name = ?, slug = ?, description = ?, image_url = ?, image_key = ?, updated_at = ?
-      WHERE id = ?
-    `,
-    [input.name, input.slug, input.description, input.imageUrl ?? "", input.imageKey ?? "", now, id],
-  );
-
-  if (result.affectedRows === 0) {
-    return null;
+  try {
+    await getPrisma().category.update({
+      where: { id },
+      data: {
+        name: input.name,
+        slug: input.slug,
+        description: input.description,
+        imageUrl: input.imageUrl ?? "",
+        imageKey: input.imageKey ?? "",
+        updatedAt: now,
+      },
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return null;
+    }
+    throw error;
   }
 
   return findCategoryById(id);
 }
 
 export async function countProductsByCategoryId(categoryId) {
-  const [rows] = await getPool().query(
-    `
-      SELECT COUNT(*) AS total
-      FROM products
-      WHERE category_id = ?
-    `,
-    [categoryId],
-  );
-
-  return Number(rows[0]?.total || 0);
+  return getPrisma().product.count({
+    where: { categoryId },
+  });
 }
 
 export async function deleteCategoryById(id) {
-  const [result] = await getPool().query(
-    `
-      DELETE FROM categories
-      WHERE id = ?
-    `,
-    [id],
-  );
-
-  return result.affectedRows > 0;
+  try {
+    await getPrisma().category.delete({
+      where: { id },
+    });
+    return true;
+  } catch (error) {
+    if (error.code === "P2025") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function categoryExists(id) {
-  const [rows] = await getPool().query(
-    `
-      SELECT id
-      FROM categories
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [id],
-  );
+  const count = await getPrisma().category.count({
+    where: { id },
+  });
 
-  return rows.length > 0;
+  return count > 0;
 }
