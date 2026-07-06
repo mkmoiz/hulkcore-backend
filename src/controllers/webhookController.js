@@ -6,6 +6,8 @@ import {
   deleteEmailSuppression,
 } from "../repositories/email-suppressions.repository.js";
 import { requireAdminAccess } from "../auth/index.js";
+import { incrementCounter, getCounter } from "../services/redisService.js";
+import { sendMail } from "../services/mailService.js";
 
 const app = Router();
 
@@ -61,35 +63,38 @@ app.post("/api/webhooks/zeptomail", async (req, res) => {
       return res.status(200).json({ status: "ignored", reason: "invalid_payload" });
     }
 
-    const eventType = cleanText(body.event_type || body.eventType).toLowerCase();
+    const eventTypeRaw = body.event_name || body.event_type || body.eventType || body.event || "";
+    const eventTypeStr = Array.isArray(eventTypeRaw) ? eventTypeRaw[0] : eventTypeRaw;
+    const eventType = cleanText(eventTypeStr).toLowerCase().replace(/\s+/g, "_");
 
     // Only process hard bounces and complaints — soft bounces are transient
-    const suppressableEvents = new Set(["hard_bounce", "hardbounce", "complaint", "spam_complaint"]);
+    const suppressableEvents = new Set(["hard_bounce", "hardbounce", "complaint", "spam_complaint", "bounce"]);
     if (!suppressableEvents.has(eventType)) {
       console.log(`[webhook] ZeptoMail event acknowledged — type="${eventType}" (no action)`);
       return res.status(200).json({ status: "acknowledged", eventType });
     }
 
     // Extract the bounced email address — ZeptoMail nests it in different places
+    const msg = Array.isArray(body.event_message) ? body.event_message[0] : (body.event_message || body);
     const emailAddress = cleanText(
-      body.bounce?.email_address ||
-      body.bounce?.emailAddress ||
-      body.email_address ||
-      body.emailAddress ||
-      body.recipient ||
-      body.to_email ||
+      msg?.bounce_address ||
+      msg?.email_info?.address ||
+      msg?.email_address ||
+      msg?.emailAddress ||
+      msg?.recipient ||
+      msg?.to_email ||
       ""
     ).toLowerCase();
 
     if (!emailAddress) {
-      console.warn(`[webhook] ZeptoMail ${eventType} event missing email address`, JSON.stringify(body).slice(0, 500));
+      console.warn(`[webhook] ZeptoMail ${eventType} event missing email address`);
       return res.status(200).json({ status: "ignored", reason: "missing_email" });
     }
 
     // Map event type to a clean reason
     const reason = eventType.includes("complaint") ? "complaint" : "hard_bounce";
-    const bounceType = cleanText(body.bounce?.sub_type || body.bounce?.subType || body.sub_type || "");
-    const diagnostics = cleanText(body.bounce?.diagnostics || body.diagnostics || body.reason || "");
+    const bounceType = cleanText(msg?.bounce_type || msg?.sub_type || msg?.bounce?.sub_type || "");
+    const diagnostics = cleanText(msg?.details?.diagnostic_message || msg?.details?.bounce_reason || msg?.diagnostics || msg?.reason || "");
 
     const suppression = await upsertEmailSuppression({
       id: createId("esup"),
@@ -103,6 +108,39 @@ app.post("/api/webhooks/zeptomail", async (req, res) => {
     console.log(
       `[webhook] Email suppressed — email="${emailAddress}" reason="${reason}" bounceType="${bounceType}"`,
     );
+
+    // Rate calculation and alerting
+    const hourKey = new Date().toISOString().slice(0, 13); // 'YYYY-MM-DDTHH'
+    const bouncedCount = await incrementCounter(`mail:bounced:${hourKey}`, 86400);
+    const sentCount = await getCounter(`mail:sent:${hourKey}`);
+    
+    // Alert if bounce rate > 5% and sent count is at least 20
+    if (sentCount >= 20 && (bouncedCount / sentCount) > 0.05) {
+      const alertKey = `mail:alert_sent:${hourKey}`;
+      const alertAlreadySent = await getCounter(alertKey);
+      
+      if (!alertAlreadySent) {
+        await incrementCounter(alertKey, 86400);
+        
+        const adminEmail = process.env.ADMIN_LOGIN_EMAIL;
+        if (adminEmail) {
+          const rate = ((bouncedCount / sentCount) * 100).toFixed(1);
+          console.warn(`[webhook] High bounce rate detected (${rate}%)! Sending alert to ${adminEmail}`);
+          
+          await sendMail({
+            to: adminEmail,
+            subject: `⚠️ URGENT: High Email Bounce Rate (${rate}%)`,
+            html: `
+              <h2>Deliverability Alert</h2>
+              <p>Your current email bounce rate is <strong>${rate}%</strong>.</p>
+              <p>Emails Sent this hour: <strong>${sentCount}</strong></p>
+              <p>Emails Bounced this hour: <strong>${bouncedCount}</strong></p>
+              <p>Please check the Email Suppressions dashboard in your admin panel immediately to see why emails are failing to deliver. Consistently high bounce rates will cause ZeptoMail to suspend your account.</p>
+            `,
+          }).catch(err => console.error("Failed to send bounce alert", err));
+        }
+      }
+    }
 
     return res.status(200).json({
       status: "suppressed",

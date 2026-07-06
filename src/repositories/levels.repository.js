@@ -161,7 +161,7 @@ export async function findLevelBySlug(slug, includeHidden = true) {
 
 export async function findLevelByName(name, excludeId) {
   const where = {
-    name: { equals: name, mode: "insensitive" },
+    name: { equals: name },
   };
   if (excludeId) {
     where.id = { not: excludeId };

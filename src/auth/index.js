@@ -21,6 +21,33 @@ import { deleteCacheKey, getCacheJson, setCacheJson } from "../redisCache.js";
 import { findAuthSessionByToken } from "../store.js";
 import { cleanText } from "../utils.js";
 
+export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
+  const normalizedEmail = cleanText(emailAddress).toLowerCase();
+  if (!normalizedEmail) {
+    throw createHttpError(400, "Valid email is required for ZeptoMail delivery.");
+  }
+
+  // Check if email is suppressed due to previous bounce/complaint
+  const suppressed = await isEmailSuppressed(normalizedEmail);
+  if (suppressed) {
+    console.warn(`[mail] OTP send blocked — email="${normalizedEmail}" is suppressed (bounced/complained)`);
+    throw createHttpError(422, "We couldn't deliver to this email address. It may be invalid or has previously bounced. Please try a different email.");
+  }
+
+  try {
+    const result = await sendMail({
+      to: normalizedEmail,
+      subject: "Your Hulk Core login OTP",
+      html: buildOtpEmailHtml(otpCode),
+      text: buildOtpEmailText(otpCode),
+    });
+
+    return { provider: result.provider, sent: true };
+  } catch (error) {
+    throw createHttpError(502, "Failed to deliver OTP email via ZeptoMail SMTP: " + error.message);
+  }
+}
+
 // ─── Admin Password Hashing (scrypt) ─────────────────────────────
 
 const SCRYPT_KEY_LENGTH = 64;
@@ -304,80 +331,4 @@ export async function requireAuthenticatedSession(req, res) {
   return session;
 }
 
-export async function sendOtpWithMsg91(phoneNumber, otpCode) {
-  const authKey = cleanText(process.env.MSG91_AUTH_KEY);
-  const templateId = cleanText(process.env.MSG91_TEMPLATE_ID);
-  const otpVarName = cleanText(process.env.MSG91_OTP_VAR_NAME) || "OTP";
-  const endpoint = cleanText(process.env.MSG91_FLOW_ENDPOINT) || "https://control.msg91.com/api/v5/flow";
 
-  if (!authKey || !templateId) {
-    return { provider: "dev", sent: false };
-  }
-
-  const recipientMobile = phoneNumber.replace(/[^\d]/g, "");
-  if (!recipientMobile) {
-    throw createHttpError(400, "Invalid phone number for MSG91 delivery.");
-  }
-
-  const recipient = {
-    mobiles: recipientMobile,
-    [otpVarName]: otpCode,
-  };
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      authkey: authKey,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      template_id: templateId,
-      short_url: 0,
-      recipients: [recipient],
-    }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message =
-      cleanText(payload?.message || payload?.error || payload?.description) || "Failed to deliver OTP SMS via MSG91.";
-    throw createHttpError(502, message);
-  }
-
-  const responseType = cleanText(payload?.type).toLowerCase();
-  if (responseType && responseType !== "success") {
-    const message =
-      cleanText(payload?.message || payload?.error || payload?.description) || "Failed to deliver OTP SMS via MSG91.";
-    throw createHttpError(502, message);
-  }
-
-  return { provider: "msg91", sent: true };
-}
-
-export async function sendOtpWithZeptoMail(emailAddress, otpCode) {
-  const normalizedEmail = cleanText(emailAddress).toLowerCase();
-  if (!normalizedEmail) {
-    throw createHttpError(400, "Valid email is required for ZeptoMail delivery.");
-  }
-
-  // Check if email is suppressed due to previous bounce/complaint
-  const suppressed = await isEmailSuppressed(normalizedEmail);
-  if (suppressed) {
-    console.warn(`[mail] OTP send blocked — email="${normalizedEmail}" is suppressed (bounced/complained)`);
-    throw createHttpError(422, "We couldn't deliver to this email address. It may be invalid or has previously bounced. Please try a different email.");
-  }
-
-  try {
-    const result = await sendMail({
-      to: normalizedEmail,
-      subject: "Your Hulk Core login OTP",
-      html: buildOtpEmailHtml(otpCode),
-      text: buildOtpEmailText(otpCode),
-    });
-
-    return { provider: result.provider, sent: true };
-  } catch (error) {
-    throw createHttpError(502, "Failed to deliver OTP email via ZeptoMail SMTP: " + error.message);
-  }
-}

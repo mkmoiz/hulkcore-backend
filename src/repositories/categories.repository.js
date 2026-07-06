@@ -19,7 +19,7 @@ export async function findCategoryById(id) {
 
 export async function findCategoryByName(name, excludeId) {
   const where = {
-    name: { equals: name, mode: "insensitive" },
+    name: { equals: name },
   };
 
   if (excludeId) {

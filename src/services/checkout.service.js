@@ -32,6 +32,69 @@ export {
   updateOrderById,
 };
 
+export async function getPaymentSummaryForAdmin() {
+  const counts = await getPrisma().order.groupBy({
+    by: ["paymentStatus"],
+    _count: true,
+  });
+
+  const revenue = await getPrisma().order.aggregate({
+    where: { paymentStatus: "paid" },
+    _sum: { total: true },
+  });
+
+  const recentOrders = await getPrisma().order.findMany({
+    where: { paymentGateway: "razorpay" },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      customerName: true,
+      customerEmail: true,
+      total: true,
+      paymentMethod: true,
+      paymentStatus: true,
+      gatewayPaymentId: true,
+      createdAt: true,
+      updatedAt: true,
+    }
+  });
+
+  const countMap = {
+    pending: 0,
+    authorized: 0,
+    paid: 0,
+    failed: 0,
+    refunded: 0,
+    partial_refund: 0,
+  };
+
+  for (const group of counts) {
+    if (group.paymentStatus in countMap) {
+      countMap[group.paymentStatus] = group._count;
+    }
+  }
+
+  return {
+    counts: countMap,
+    revenue: {
+      total: revenue._sum.total ? Number(revenue._sum.total) : 0,
+      currency: "INR",
+    },
+    recentPayments: recentOrders.map(order => ({
+      orderId: order.id,
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      total: Number(order.total),
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      gatewayPaymentId: order.gatewayPaymentId,
+      placedAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
+    })),
+  };
+}
+
 function parseComboProductsSnapshot(productsJson) {
   if (typeof productsJson !== "string" || !productsJson.trim()) {
     return [];

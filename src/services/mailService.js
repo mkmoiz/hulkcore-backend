@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { cleanText } from "../utils.js";
+import { incrementCounter } from "./redisService.js";
 
 // ─── Singleton Transport ─────────────────────────────────────────
 
@@ -121,6 +122,10 @@ export async function sendMail({ to, subject, html, text, from }) {
       console.log(
         `[mail] Email sent successfully — messageId=${info.messageId} to=${mailOptions.to}`,
       );
+
+      // Track sent emails for bounce rate alerting
+      const hourKey = new Date().toISOString().slice(0, 13); // 'YYYY-MM-DDTHH'
+      incrementCounter(`mail:sent:${hourKey}`, 86400).catch(err => console.error("Failed to increment sent counter", err));
 
       return { messageId: info.messageId, provider: "zeptomail" };
     } catch (err) {

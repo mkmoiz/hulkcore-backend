@@ -177,3 +177,52 @@ export async function deleteCacheByPrefix(prefix) {
     return deletedCount;
   }
 }
+
+// ─── Counter Utilities ───────────────────────────────────────────
+const localCounters = new Map(); // Fallback when Redis is not available
+
+export async function incrementCounter(key, ttlSeconds = 3600) {
+  const redis = getClient();
+  const redisKey = buildKey(key);
+  
+  if (!redis || !redisKey) {
+    // Fallback: in-memory counter
+    const current = (localCounters.get(key) || 0) + 1;
+    localCounters.set(key, current);
+    
+    // In-memory simplistic TTL: clear the specific key after ttl
+    if (current === 1 && ttlSeconds > 0) {
+      setTimeout(() => localCounters.delete(key), ttlSeconds * 1000).unref();
+    }
+    return current;
+  }
+
+  try {
+    const value = await redis.incr(redisKey);
+    if (value === 1 && ttlSeconds > 0) {
+      await redis.expire(redisKey, ttlSeconds);
+    }
+    return value;
+  } catch (error) {
+    console.error("Redis increment failed:", error?.message || error);
+    return 0;
+  }
+}
+
+export async function getCounter(key) {
+  const redis = getClient();
+  const redisKey = buildKey(key);
+  
+  if (!redis || !redisKey) {
+    return localCounters.get(key) || 0;
+  }
+
+  try {
+    const val = await redis.get(redisKey);
+    return val ? parseInt(val, 10) : 0;
+  } catch (error) {
+    console.error("Redis getCounter failed:", error?.message || error);
+    return 0;
+  }
+}
+

@@ -87,6 +87,7 @@ export {
   getOrdersForAdmin,
   updateOrderById,
   createOrderFromCart,
+  getPaymentSummaryForAdmin,
 } from "../services/checkout.service.js";
 
 export {

@@ -544,4 +544,94 @@ app.post(
   },
 );
 
+app.post(
+  ["/api/admin/payments/razorpay/verify/:orderId", "/admin/payments/razorpay/verify/:orderId"],
+  requireAdminAccess,
+  async (req, res, next) => {
+    try {
+      const orderId = cleanText(req.params.orderId);
+      if (!orderId) {
+        return res.status(400).json({ message: "Order id is required." });
+      }
+
+      const order = await findOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found." });
+      }
+
+      if (cleanText(order.paymentGateway).toLowerCase() !== "razorpay") {
+        return res.status(400).json({ message: "Order is not a Razorpay order." });
+      }
+
+      const gatewayPaymentId = cleanText(order.gatewayPaymentId);
+      const gatewayOrderId = cleanText(order.gatewayOrderId);
+
+      if (!gatewayPaymentId && !gatewayOrderId) {
+        return res.status(400).json({ message: "Order does not have a Razorpay payment or order ID." });
+      }
+
+      let paymentEntity = null;
+      if (gatewayPaymentId) {
+        try {
+          paymentEntity = await razorpayRequest(`/payments/${encodeURIComponent(gatewayPaymentId)}`);
+        } catch (error) {
+          console.warn("Failed to fetch Razorpay payment", error?.message);
+        }
+      }
+
+      if (!paymentEntity && gatewayOrderId) {
+        try {
+          const payments = await razorpayRequest(`/orders/${encodeURIComponent(gatewayOrderId)}/payments`);
+          if (payments?.items?.length > 0) {
+            paymentEntity = payments.items[0];
+          }
+        } catch (error) {
+           console.warn("Failed to fetch Razorpay payments for order", error?.message);
+        }
+      }
+
+      if (!paymentEntity) {
+        return res.status(404).json({ message: "Razorpay payment not found." });
+      }
+
+      const syncResult = await syncOrderFromPaymentEntity(order, paymentEntity);
+
+      return res.json({
+        orderId: order.id,
+        localStatus: order.status,
+        localPaymentStatus: order.paymentStatus,
+        razorpay: {
+          orderId: paymentEntity.order_id,
+          paymentId: paymentEntity.id,
+          status: paymentEntity.status,
+          amount: paymentEntity.amount,
+          currency: paymentEntity.currency,
+          method: paymentEntity.method,
+          email: paymentEntity.email,
+          contact: paymentEntity.contact,
+          createdAt: new Date((paymentEntity.created_at || 0) * 1000).toISOString(),
+        },
+        action: syncResult.updated ? "synced" : "already_in_sync",
+        updatedOrder: syncResult.order,
+      });
+
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  ["/api/admin/payments/summary", "/admin/payments/summary"],
+  requireAdminAccess,
+  async (req, res, next) => {
+    try {
+      const summary = await getPaymentSummaryForAdmin();
+      return res.json(summary);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 export default app;
